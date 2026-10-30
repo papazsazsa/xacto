@@ -1247,6 +1247,8 @@ function demoAim(rdt) {
 
 // ---- render -------------------------------------------------------------------
 function render() {
+  // test hook: a free camera for looking at things up close (window.__X.look)
+  if (G.dbgView) { const v = G.dbgView; camera.position.copy(v.p); camera.up.set(0, 1, 0); camera.lookAt(v.t); camera.fov = v.fov || 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
   const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials'].includes(G.state) ? 1 : 0;
   G.scopeAmt = scopeOn;
   const d = Post.display.uniforms, s = Post.sensor.uniforms;
@@ -1298,6 +1300,7 @@ window.__X = {
   G, Aim, City, Target, Bullet, Post, Hud, FX, Sfx, scene, renderer, camera, fontsReady, Input,
   advance(sec, step = 1 / 60, draw = true) { const n = Math.max(1, Math.round(sec / step)); for (let i = 0; i < n; i++) tick(step); if (draw) render(); },
   key(code) { Input.pressed.add(code); },
+  look(p, t, fov) { G.dbgView = p ? { p: p.clone(), t: t.clone(), fov } : null; },
   start() { startGame(); },
   aimAtTarget(lead = 0) {
     const t = Target.chest; const dx = t.x - PLAYER.eye.x, dy = t.y - PLAYER.eye.y, dz = t.z - PLAYER.eye.z;

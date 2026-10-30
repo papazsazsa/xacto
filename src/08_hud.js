@@ -762,7 +762,7 @@ const Hud = (() => {
     // anchored in the right part of the screen: the kill camera frames the body in the left third
     const rows = G.tallyRows, rh = 34 * u, pw = portrait ? W - 28 * u : Math.min(W * 0.5, 600 * u), ph = 136 * u + rows.length * rh;
     const px = portrait ? W / 2 - pw / 2 : W - pw - 44 * u, py = Math.max(84 * u, H / 2 - ph / 2), pcx = px + pw / 2;
-    panel(px, py, pw, ph, 'TALLY', { scrim: 1.0, col: BR, tab: BR });       // full scrim = 92 % black in the display
+    panel(px, py, pw, ph, 'DOPE', { scrim: 1.0, col: BR, tab: BR });       // full scrim = 92 % black in the display
     panel(px + 6 * u, py + 6 * u, pw - 12 * u, ph - 12 * u, null, { col: FAINT });
     txt(`STAGE ${pad(G.stage, 2)} CLEAR`, pcx, py + 40 * u, 24, 'center');
     const fs = portrait ? 8 : 16, x0 = px + 34 * u, x1 = px + pw - 34 * u;
