@@ -72,8 +72,9 @@ A finger cannot make the fine last-moment corrections a mouse can, so on touch:
 1. The terminal lock reaches 2.2 times as far and its cone is 20° wider.
 2. The last 90 m of the flight run up to a third slower, giving more time to react as the round goes round the target.
 3. The marker snaps onto the target from 2.5 times as far, and a tap on the target locks it.
-4. The marker moves less per finger travel as the round closes in.
-5. Men only ever stand on roofs: a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Machines, the helicopter and fire missions are the same as on desktop.
+4. In flight a swipe moves the marker 2.2 times the finger's travel (1.6 in the scope), easing to 60% of that as the round closes in.
+5. **Hold at an edge to turn hard.** Dragging the thumb into the outer 14% of the screen and holding it there banks the round that way at full authority for as long as it is held (a chevron shows at that edge), so a 90° turn is possible with one thumb: about 2 s of holding at cruise speed, under a second close in. The marker rides straight ahead of the round meanwhile. A swipe alone runs out of screen long before a 90° turn.
+6. Men only ever stand on roofs: a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Machines, the helicopter and fire missions are the same as on desktop.
 
 With a bot that plays coarser and slower than the desktop bot (about touch quality), stages 3 to 7 hit about 80% on both.
 

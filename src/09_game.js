@@ -94,7 +94,8 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { Input.dx += (t.clientX - Input.touchAim.x) * 1.6; Input.dy += (t.clientY - Input.touchAim.y) * 1.6; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
+  // (in flight a swipe moves the marker twice the finger's travel, so a turn fits in a thumb's reach)
+  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { const g = G.state === 'flight' ? 2.2 : 1.6; Input.dx += (t.clientX - Input.touchAim.x) * g; Input.dy += (t.clientY - Input.touchAim.y) * g; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
 }, { passive: false });
 function touchEnd(e) {
   Sfx.init();   // iOS unlocks audio on touchend
@@ -415,7 +416,7 @@ function aimUpdate(rdt, input) {
   if (input) {
     const kx = (held('ArrowRight', 'KeyD') ? 1 : 0) - (held('ArrowLeft', 'KeyA') ? 1 : 0), ky = (held('ArrowUp', 'KeyW') ? 1 : 0) - (held('ArrowDown', 'KeyS') ? 1 : 0);
     // touch: the marker moves less per finger travel as the round closes in, so corrections stay small up close
-    const tk = Hud.touch ? clamp(Bullet.S.p.distanceTo(c) / 150, 0.35, 1) : 1;
+    const tk = Hud.touch ? clamp(Bullet.S.p.distanceTo(c) / 150, 0.6, 1) : 1;
     const dxp = Input.dx * tk + kx * innerHeight * 0.45 * rdt, dyp = Input.dy * tk - ky * innerHeight * 0.45 * rdt;
     if (dxp || dyp) {
       camera.getWorldDirection(fwd);
@@ -1179,6 +1180,21 @@ function tick(rdt) {
       else if (POINT) { const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
+      // touch: hold the thumb at an edge of the screen to bank hard that way for as long as it is held (a swipe
+      // runs out of screen long before a 90 degree turn). The marker rides along straight ahead of the round,
+      // so it picks up from the new heading when the thumb comes off the edge.
+      G.hardTurn = null;
+      { const a = Input.touchAim;
+        if (POINT && Hud.touch && a && !G.tLock && !G.demo && Math.hypot(a.x - a.x0, a.y - a.y0) > 30) {
+          const fx = a.x / innerWidth, fy = a.y / innerHeight, E = 0.14;
+          const hx = fx < E ? -1 : fx > 1 - E ? 1 : 0, hy = fy < E ? 1 : fy > 1 - E ? -1 : 0;
+          if (hx || hy) {
+            G.hardTurn = { x: hx, y: hy };
+            const m = Math.hypot(hx, hy); Bullet.unshape(hx / m, hy / m, G.stick);
+            const B = Bullet.S; G.aimLock = false; G.aimSpent = false;
+            G.aimP.copy(B.p).addScaledVector(tmpV2.copy(B.v).normalize(), Math.max(30, G.aimDepth || 60)); G.aimTgt.copy(G.aimP);
+          }
+        } }
       // last-ditch terminal lock: close in, roughly pointed at him, with an open line to him (glass counts as
       // open), the round's own seeker takes over and steers itself in with extra fin authority. The reach and
       // the cone tighten with the stage.

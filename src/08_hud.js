@@ -431,6 +431,14 @@ const Hud = (() => {
     if (tgtB && G.pipScreen.vis) { const px = G.pipScreen.x * W, py = (1 - G.pipScreen.y) * H; on = px > tgtB.x0 && px < tgtB.x1 && py > tgtB.y0 && py < tgtB.y1; }
     corners(m, 70 * u, W - m, H - m, 40 * u, DIM, 1.5);
     guideDots(G);   // the suggested path, under everything else
+    // touch hard turn: a chevron at the held edge
+    if (G.hardTurn) {
+      const hx = G.hardTurn.x, hy = G.hardTurn.y, ex = W / 2 + hx * (W / 2 - 34 * u), ey = H / 2 - hy * (H / 2 - 92 * u), s = 16 * u;
+      const ang = Math.atan2(-hy, hx);
+      ctx.save(); ctx.translate(ex, ey); ctx.rotate(ang);
+      ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(-s * 0.6, -s * 0.9); ctx.lineTo(-s * 0.6, s * 0.9); ctx.closePath();
+      ctx.fillStyle = BR; ctx.fill(); ctx.restore();
+    }
     // top-left (under the top bar): round + datalink
     ctx.globalAlpha = fadeFor(36 * u, 76 * u, 200 * u, 50 * u);
     plate(36 * u, 76 * u, 200 * u, 58 * u, 0.62);
