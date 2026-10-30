@@ -4575,7 +4575,8 @@ void main(){
   function rigHit(a, b) {
     const ax = a.x - RIG.c.x, az = a.z - RIG.c.z, bx = b.x - RIG.c.x, bz = b.z - RIG.c.z;
     const p0 = [ax * RIG.r.x + az * RIG.r.z, a.y - RIG.c.y, ax * RIG.f.x + az * RIG.f.z], p1 = [bx * RIG.r.x + bz * RIG.r.z, b.y - RIG.c.y, bx * RIG.f.x + bz * RIG.f.z];
-    const lo = RIG.lo, hi = RIG.hi;
+    // the helicopter: a proximity fuze, the round bursts within 1.5 m of it (rotor disc included)
+    const pm = RIG.kind === 'heli' ? 1.5 : 0, lo = [RIG.lo[0] - pm, RIG.lo[1] - pm, RIG.lo[2] - pm], hi = [RIG.hi[0] + pm, RIG.hi[1] + pm + 1, RIG.hi[2] + pm];
     let t0 = 0, t1 = 1;
     for (let k = 0; k < 3; k++) {
       const d = p1[k] - p0[k];
@@ -5173,8 +5174,9 @@ const Bullet = (() => {
   // speed the round settles to at point p: cruise far out, easing to vMin as it closes on the man
   function settleSpeed(p) {
     if (typeof Target === 'undefined' || !Target.S.alive) return S.vc;
-    // never slower close in than the target is moving, plus enough to catch it (a fleeing helicopter)
-    const vMin = Math.max(S.vMin, typeof G !== 'undefined' && G.tgtVel ? G.tgtVel.length() + 16 : 0);
+    // close in on a moving target it keeps half as fast again as the target plus 12 m/s, so it closes quickly
+    // on a fleeing helicopter instead of trailing it round the corners
+    const vMin = Math.max(S.vMin, typeof G !== 'undefined' && G.tgtVel ? G.tgtVel.length() * 1.5 + 12 : 0);
     return vMin + (S.vc - vMin) * sstep(S.slowNear, S.slowFar, p.distanceTo(Target.chest));
   }
   function deployAt(t) { return clamp((t - S.dash) / S.brakeT, 0, 1); }
@@ -5936,7 +5938,7 @@ const Hud = (() => {
     tex.dispose();                                  // texture storage is allocated once: re-allocate at the new size
   }
   // first touch on any device: switch to the touch layout (buttons, hints)
-  function setTouch() { if (!touched) { touched = true; touch = true; sig.length = 0; } }
+  function setTouch(on = true) { if (on && !touched) { touched = true; touch = true; sig.length = 0; } else if (!on) { touched = false; touch = false; sig.length = 0; } }   // (off: test bots only)
   // touch buttons drawn this frame, in screen fractions (0..1, y down), read by the touch input; each one is
   // given a little more room to hit than it is drawn
   const buttons = [];
@@ -7705,7 +7707,7 @@ function aimUpdate(rdt, input) {
       project(G.aimP, aimS1); project(c, aimS2);
       const px = aimS1.vis && aimS2.vis ? Math.hypot((aimS1.x - aimS2.x) * innerWidth, (aimS1.y - aimS2.y) * innerHeight) : 1e9;
       // touch: the marker snaps onto him from twice as far; a moving target half as far again
-      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1) * (Target.S.type === 'heli' ? 0.5 : 1);
+      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2.5 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1);
       if (px > lr * 2) G.aimArmed = true;
       if (G.aimArmed && px < lr) G.aimLock = true;
     }
@@ -8404,14 +8406,22 @@ function tick(rdt) {
       // the cone tighten with the stage.
       { const Bs = Bullet.S, c = Target.chest;
         if (Target.S.alive && Bs.budget > 0 && Bs.t > Bs.dash + Bs.brakeT) {
-          // (the helicopter: half the reach and half the cone, so it stays a real challenge)
-          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1, hk = Target.S.type === 'heli' ? 0.5 : 1;
-          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.5 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 12 : 0) + (mv ? 8 : 0)) * DEG * hk;
+          // touch: a much bigger lock field and a wider cone (a finger cannot make the fine last corrections a
+          // mouse can). A moving target gets a little more of both.
+          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1;
+          // the helicopter: twice the reach, so the round can lock on behind it and follow it round a corner
+          const hk = Target.S.type === 'heli' ? 2 : 1;
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 30 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
-          const sees = dd < reach + 2 && clearLine(Bs.p, c, 0.15, true);
+          const sees = dd < reach * 2.5 && clearLine(Bs.p, c, 0.15, true);
           if (!G.tLock && dd < reach && Math.acos(clamp(TL1.dot(TL2), -1, 1)) < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
+          // once locked it holds on while it can see the target, even if a moving target opens the gap for a moment
           if (G.tLock && !sees) G.tLock = false;
-          if (G.tLock) { Bs.assistK = 1.6; TL1.copy(c).addScaledVector(G.tgtVel, Math.min(0.6, dd / Math.max(20, Bs.v.length()))); pointSteerAt(Bs.p, Bs.v, G.stick, TL1); }
+          if (G.tLock) {
+            // aim where the target will be when the round gets there (time to go from the closing speed)
+            const closing = Math.max(8, TL1.dot(Bs.v) - TL1.dot(G.tgtVel));
+            Bs.assistK = 1.6; TL1.copy(c).addScaledVector(G.tgtVel, Math.min(1.2, dd / closing)); pointSteerAt(Bs.p, Bs.v, G.stick, TL1);
+          }
           else Bs.assistK = 1;
         } else Bs.assistK = 1;
       }
@@ -8432,6 +8442,8 @@ function tick(rdt) {
       G.timeScale = lerp(1, slowTS, ramp);
       // a ricochet gets a short extra slow-down so you see it happen
       G.ricoT = Math.max(0, (G.ricoT || 0) - rdt); G.timeScale *= 1 - 0.5 * clamp(G.ricoT / 0.6, 0, 1);
+      // touch: the last stretch runs a third slower, so a thumb has time to react as the round goes round him
+      if (Hud.touch) G.timeScale *= lerp(0.67, 1, sstep(30, 90, remaining));
       // moving away from him: a miss once it has gone on for a while (quickly once the round can't steer)
       G.recede = along < 0 ? (G.recede || 0) + rdt : 0;
       gdt = rdt * G.timeScale;

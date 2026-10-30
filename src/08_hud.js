@@ -30,7 +30,7 @@ const Hud = (() => {
     tex.dispose();                                  // texture storage is allocated once: re-allocate at the new size
   }
   // first touch on any device: switch to the touch layout (buttons, hints)
-  function setTouch() { if (!touched) { touched = true; touch = true; sig.length = 0; } }
+  function setTouch(on = true) { if (on && !touched) { touched = true; touch = true; sig.length = 0; } else if (!on) { touched = false; touch = false; sig.length = 0; } }   // (off: test bots only)
   // touch buttons drawn this frame, in screen fractions (0..1, y down), read by the touch input; each one is
   // given a little more room to hit than it is drawn
   const buttons = [];

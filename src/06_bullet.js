@@ -186,8 +186,9 @@ const Bullet = (() => {
   // speed the round settles to at point p: cruise far out, easing to vMin as it closes on the man
   function settleSpeed(p) {
     if (typeof Target === 'undefined' || !Target.S.alive) return S.vc;
-    // never slower close in than the target is moving, plus enough to catch it (a fleeing helicopter)
-    const vMin = Math.max(S.vMin, typeof G !== 'undefined' && G.tgtVel ? G.tgtVel.length() + 16 : 0);
+    // close in on a moving target it keeps half as fast again as the target plus 12 m/s, so it closes quickly
+    // on a fleeing helicopter instead of trailing it round the corners
+    const vMin = Math.max(S.vMin, typeof G !== 'undefined' && G.tgtVel ? G.tgtVel.length() * 1.5 + 12 : 0);
     return vMin + (S.vc - vMin) * sstep(S.slowNear, S.slowFar, p.distanceTo(Target.chest));
   }
   function deployAt(t) { return clamp((t - S.dash) / S.brakeT, 0, 1); }

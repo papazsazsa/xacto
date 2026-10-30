@@ -1746,7 +1746,8 @@ void main(){
   function rigHit(a, b) {
     const ax = a.x - RIG.c.x, az = a.z - RIG.c.z, bx = b.x - RIG.c.x, bz = b.z - RIG.c.z;
     const p0 = [ax * RIG.r.x + az * RIG.r.z, a.y - RIG.c.y, ax * RIG.f.x + az * RIG.f.z], p1 = [bx * RIG.r.x + bz * RIG.r.z, b.y - RIG.c.y, bx * RIG.f.x + bz * RIG.f.z];
-    const lo = RIG.lo, hi = RIG.hi;
+    // the helicopter: a proximity fuze, the round bursts within 1.5 m of it (rotor disc included)
+    const pm = RIG.kind === 'heli' ? 1.5 : 0, lo = [RIG.lo[0] - pm, RIG.lo[1] - pm, RIG.lo[2] - pm], hi = [RIG.hi[0] + pm, RIG.hi[1] + pm + 1, RIG.hi[2] + pm];
     let t0 = 0, t1 = 1;
     for (let k = 0; k < 3; k++) {
       const d = p1[k] - p0[k];

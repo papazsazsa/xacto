@@ -49,8 +49,19 @@ Measured with the human-like bot (tools/bots/stages.js, 3 seeds × 10 shots), th
 2. **Off at the first shot.** It lifts off the moment you fire, drops into the street canyons and runs through the city on the street grid. It turns at the crossings (mostly away from you, off the main avenue, never revisiting a crossing) and hops over anything across the street.
 3. **Path following.** It chases a "carrot" point 22 m ahead on the street centre lines, turns no faster than 1 rad/s and slows for corners. The round can always out-turn it, so the two never circle each other.
 4. **Speed.** Top speed is about 27, 31 and 35 m/s on stages 10, 20 and 30.
-5. **Lock and catch-up.** Terminal lock on it has half the usual reach and cone. Close in, the round never flies slower than the target's speed plus 16 m/s (`settleSpeed` in `06_bullet.js`).
+5. **Lock and catch-up.** Terminal lock on it has twice the usual reach and a wider cone, and the round has a proximity fuze against it (a burst within 1.5 m counts). Once locked, the round aims where the helicopter will be (time to go from the closing speed) and holds the lock while it can see it. Close in, the round keeps to at least 1.5 times the target's speed plus 12 m/s (`settleSpeed` in `06_bullet.js`). With a bot that steers straight at the helicopter once it can see it, about 80% of shots hit, and every shot that got the lock hit.
 6. **Escape.** Once it is 1,900 m out it has escaped: TARGET ESCAPED, no bonus, on to the next stage (game over on stage 30).
+
+## Touch assists (phones and tablets)
+
+A finger cannot make the fine last-moment corrections a mouse can, so on touch:
+
+1. The terminal lock reaches 2.2 times as far and its cone is 30° wider.
+2. The last 90 m of the flight run up to a third slower, giving more time to react as the round goes round the target.
+3. The marker snaps onto the target from 2.5 times as far, and a tap on the target locks it.
+4. The marker moves less per finger travel as the round closes in.
+
+With a bot that plays coarser and slower than the desktop bot (about touch quality), stages 3 to 7 hit about 80% on both.
 
 ## Fire mission (stages 5, 15, 25)
 
@@ -108,6 +119,8 @@ The modules in `src/` are concatenated in name order into one `<script type="mod
    3. `heli.js` – helicopter engagements, checking for orbiting, long close chases and building clipping.
    4. `missions.js` – plays every fire mission set-up to the end.
    5. `spawns.js` – spawn success, heights and distances per spot kind.
+   6. `touch.js` – stages 3 to 7 with a desktop-like bot and a coarser, slower touch-like bot.
+   7. `heli_chase.js` – helicopter shots traced through the terminal lock (`__CHASE=1` steers straight at it once it is in sight).
    Headless runs use SwiftShader. Use `sim()` (no rendering) for bots. A run of 30 shots takes a few minutes.
 5. **Test hooks on `window.__X`:** `startAt(stage)`, `sim(sec)`, `advance(sec)`, `spawnKind(kind)`, `aimAt(v)`, `aimAtTarget()`, `fire()`, `planHidden()`, `RP` (route), `flyable(slack)`, `routeFollow`, `setAim`, `bot` (per-frame callback), `look(p, t, fov)` (free camera), `setState`, plus the modules (`G`, `City`, `Target`, `Bullet`, `Mortar`, `Hud`, `Input`, …). `Mortar.M.force = '<set-up>'` forces a fire mission set-up.
 

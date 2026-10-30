@@ -435,7 +435,7 @@ function aimUpdate(rdt, input) {
       project(G.aimP, aimS1); project(c, aimS2);
       const px = aimS1.vis && aimS2.vis ? Math.hypot((aimS1.x - aimS2.x) * innerWidth, (aimS1.y - aimS2.y) * innerHeight) : 1e9;
       // touch: the marker snaps onto him from twice as far; a moving target half as far again
-      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1) * (Target.S.type === 'heli' ? 0.5 : 1);
+      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2.5 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1);
       if (px > lr * 2) G.aimArmed = true;
       if (G.aimArmed && px < lr) G.aimLock = true;
     }
@@ -1134,14 +1134,22 @@ function tick(rdt) {
       // the cone tighten with the stage.
       { const Bs = Bullet.S, c = Target.chest;
         if (Target.S.alive && Bs.budget > 0 && Bs.t > Bs.dash + Bs.brakeT) {
-          // (the helicopter: half the reach and half the cone, so it stays a real challenge)
-          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1, hk = Target.S.type === 'heli' ? 0.5 : 1;
-          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.5 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 12 : 0) + (mv ? 8 : 0)) * DEG * hk;
+          // touch: a much bigger lock field and a wider cone (a finger cannot make the fine last corrections a
+          // mouse can). A moving target gets a little more of both.
+          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1;
+          // the helicopter: twice the reach, so the round can lock on behind it and follow it round a corner
+          const hk = Target.S.type === 'heli' ? 2 : 1;
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 30 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
-          const sees = dd < reach + 2 && clearLine(Bs.p, c, 0.15, true);
+          const sees = dd < reach * 2.5 && clearLine(Bs.p, c, 0.15, true);
           if (!G.tLock && dd < reach && Math.acos(clamp(TL1.dot(TL2), -1, 1)) < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
+          // once locked it holds on while it can see the target, even if a moving target opens the gap for a moment
           if (G.tLock && !sees) G.tLock = false;
-          if (G.tLock) { Bs.assistK = 1.6; TL1.copy(c).addScaledVector(G.tgtVel, Math.min(0.6, dd / Math.max(20, Bs.v.length()))); pointSteerAt(Bs.p, Bs.v, G.stick, TL1); }
+          if (G.tLock) {
+            // aim where the target will be when the round gets there (time to go from the closing speed)
+            const closing = Math.max(8, TL1.dot(Bs.v) - TL1.dot(G.tgtVel));
+            Bs.assistK = 1.6; TL1.copy(c).addScaledVector(G.tgtVel, Math.min(1.2, dd / closing)); pointSteerAt(Bs.p, Bs.v, G.stick, TL1);
+          }
           else Bs.assistK = 1;
         } else Bs.assistK = 1;
       }
@@ -1162,6 +1170,8 @@ function tick(rdt) {
       G.timeScale = lerp(1, slowTS, ramp);
       // a ricochet gets a short extra slow-down so you see it happen
       G.ricoT = Math.max(0, (G.ricoT || 0) - rdt); G.timeScale *= 1 - 0.5 * clamp(G.ricoT / 0.6, 0, 1);
+      // touch: the last stretch runs a third slower, so a thumb has time to react as the round goes round him
+      if (Hud.touch) G.timeScale *= lerp(0.67, 1, sstep(30, 90, remaining));
       // moving away from him: a miss once it has gone on for a while (quickly once the round can't steer)
       G.recede = along < 0 ? (G.recede || 0) + rdt : 0;
       gdt = rdt * G.timeScale;
