@@ -6035,6 +6035,18 @@ const Hud = (() => {
     corners(x0, y0, x1, y1, len, DK, lw + 2.2);
     corners(x0, y0, x1, y1, len, RD, lw);
   }
+  // the suggested path (a stage's last two rounds): red dots on dark, nearer ones bigger; inside the scope
+  // circle when one is given
+  function guideDots(G, cx, cy, Rr) {
+    const S = G.guideScr; if (!S || !S.length) return;
+    ctx.save(); if (Rr) { ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip(); }
+    for (let i = 0; i < S.length; i += 3) {
+      const x = S[i] * W, y = S[i + 1] * H, r = clamp(70 * u / Math.sqrt(Math.max(1, S[i + 2])), 1.8 * u, 5.5 * u);
+      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + 1.5 * u, 0, TAU); ctx.fill();
+      ctx.fillStyle = RD; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
   // chamfered panel with an inverted title tab
   function panel(x, y, w, h, title, opts = {}) {
     const c = (opts.chamfer || 8) * u;
@@ -6247,6 +6259,7 @@ const Hud = (() => {
     const cx = W / 2, cy = H / 2, R = scopeRadius(G), ir = iris();
     const Rr = R * (0.08 + 0.92 * ir);
     if (ir > 0.3) rimTicks(cx, cy, Rr, (typeof Aim !== 'undefined' ? Aim.yaw : 0) * 3);
+    if (!hideMarkers) guideDots(G, cx, cy, Rr);   // the suggested path, under the reticle
     ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip();
     (G.mission ? mortarReticle : reticle)(cx + G.reticleOff.x * H, cy - G.reticleOff.y * H, Rr);   // fire mission: the mortar sight
     ctx.restore();
@@ -6338,6 +6351,7 @@ const Hud = (() => {
     let on = false;
     if (tgtB && G.pipScreen.vis) { const px = G.pipScreen.x * W, py = (1 - G.pipScreen.y) * H; on = px > tgtB.x0 && px < tgtB.x1 && py > tgtB.y0 && py < tgtB.y1; }
     corners(m, 70 * u, W - m, H - m, 40 * u, DIM, 1.5);
+    guideDots(G);   // the suggested path, under everything else
     // top-left (under the top bar): round + datalink
     ctx.globalAlpha = fadeFor(36 * u, 76 * u, 200 * u, 50 * u);
     plate(36 * u, 76 * u, 200 * u, 58 * u, 0.62);
@@ -6842,7 +6856,8 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1,
+      G.guideScr ? G.guideScr.length * 7 + q((G.guideScr[0] || 0) * W) * 13 + q((G.guideScr[1] || 0) * H) * 17 + q((G.guideScr[G.guideScr.length - 3] || 0) * W) : -1);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
@@ -7486,9 +7501,10 @@ function lase(o, d) {
 }
 function fire() {
   if (G.rounds <= 0) return;
+  G.guideShot = G.rounds <= 2; GUIDE.i = 0;   // the stage's last two rounds: the suggested path stays up in flight
   G.rounds--;
   // a machine (it may be on the move): the way in, and the planned route, start from where it is now
-  if (Target.S.type !== 'man' && Target.S.alive) { Target.refreshSpot(); planHidden(); }
+  if (Target.S.type !== 'man' && Target.S.alive) { Target.refreshSpot(); planHidden(); if (G.guideShot) guideBuild(); }
   camera.getWorldDirection(fwd);
   const origin = tmpV.copy(PLAYER.eye).add(new THREE.Vector3(0, -0.06, 0));
   const range = G.lased > 0 ? G.lased : 1000;
@@ -7902,6 +7918,50 @@ function planHidden() {
   res.push(c.clone());
   RP.pts = res; RP.ok = true; RP.ms = performance.now() - t0;
   return RP;
+}
+// ---- the suggested path: on a stage's last two rounds a line of red dots shows the planned route, from the
+// rifle out to the gate and on in to the target (a straight line to a target in the open). It is rebuilt when
+// each of those rounds comes up (the target may have moved), every few seconds while a machine is on the move,
+// and at the shot for a machine.
+const GUIDE = { pts: [], scr: [], key: '', t: 0, i: 0 };
+function guideBuild() {
+  const P = GUIDE.pts, c = Target.chest, sp = Target.S.spot; P.length = 0; GUIDE.i = 0;
+  if (!Target.S.alive) return;
+  const path = [PLAYER.eye];
+  if (sp && sp.kind !== 'highway' && RP.ok) for (const p of RP.pts) path.push(p); else path.push(c);
+  // a dot every 9 m, every 4.5 m in the last 60 m; none in the first 40 m out of the barrel
+  let next = 40, walked = 0;
+  for (let i = 1; i < path.length && P.length < 160; i++) {
+    const a = path[i - 1], b = path[i], L = a.distanceTo(b); if (L < 1e-3) continue;
+    while (next <= walked + L && P.length < 160) { const q = a.clone().lerp(b, (next - walked) / L); if (q.distanceTo(c) > 3) P.push(q); next += q.distanceTo(c) < 60 ? 4.5 : 9; }
+    walked += L;
+  }
+}
+function guideUpdate(rdt) {
+  const want = !G.demo && !G.mission && Target.S.alive && (G.state === 'flight' || G.state === 'shot' ? G.guideShot : G.state === 'aim' && G.rounds <= 2 && G.rounds > 0);
+  GUIDE.scr.length = 0; G.guideScr = null;
+  if (!want) return;
+  if (G.state === 'aim') {
+    const key = G.stage + ':' + G.rounds; GUIDE.t += rdt;
+    if (GUIDE.key !== key || (Target.S.type !== 'man' && GUIDE.t > 2.5)) { if (Target.S.type !== 'man') Target.refreshSpot(); if (Target.S.spot) planHidden(); guideBuild(); GUIDE.key = key; GUIDE.t = 0; }
+  }
+  const P = GUIDE.pts; if (!P.length) return;
+  // in flight, only the dots still ahead of the round: its progress along the dots only ever moves on, and a
+  // dot behind it (it cut a corner) is left out
+  let i0 = 0; const fl = G.state === 'flight', B = Bullet.S;
+  if (fl) {
+    let bd = 1e18, bi = GUIDE.i;
+    for (let i = GUIDE.i; i < Math.min(P.length, GUIDE.i + 30); i++) { const d = P[i].distanceToSquared(B.p); if (d < bd) { bd = d; bi = i; } }
+    GUIDE.i = bi; i0 = bi + 1;
+  }
+  camera.getWorldDirection(fwd);
+  for (let i = i0; i < P.length; i++) {
+    if (tmpV2.subVectors(P[i], camera.position).dot(fwd) < 1) continue;
+    if (fl && (tmpV2.subVectors(P[i], B.p).dot(B.v) < 0 || P[i].distanceTo(Target.chest) > B.p.distanceTo(Target.chest) + 8)) continue;
+    ndc.copy(P[i]).project(camera); if (Math.abs(ndc.x) > 1.1 || Math.abs(ndc.y) > 1.1) continue;
+    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, P[i].distanceTo(camera.position));
+  }
+  G.guideScr = GUIDE.scr;
 }
 // pure pursuit on the plan: writes the look-ahead point; false once it should just lock on him
 function routeFollow(out, lookK = 0.5) {
@@ -8577,6 +8637,7 @@ function tick(rdt) {
   // HUD projections
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   project(Target.chest, G.tgtScreen);
+  guideUpdate(rdt);
   if (G.mission) { Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false; }   // fire mission: the trucks have their own brackets
   // a car or a quadcopter: its brackets frame its whole box on screen
   G.tgtScreen.bw = 0;

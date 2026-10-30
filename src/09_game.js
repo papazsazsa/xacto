@@ -200,9 +200,10 @@ function lase(o, d) {
 }
 function fire() {
   if (G.rounds <= 0) return;
+  G.guideShot = G.rounds <= 2; GUIDE.i = 0;   // the stage's last two rounds: the suggested path stays up in flight
   G.rounds--;
   // a machine (it may be on the move): the way in, and the planned route, start from where it is now
-  if (Target.S.type !== 'man' && Target.S.alive) { Target.refreshSpot(); planHidden(); }
+  if (Target.S.type !== 'man' && Target.S.alive) { Target.refreshSpot(); planHidden(); if (G.guideShot) guideBuild(); }
   camera.getWorldDirection(fwd);
   const origin = tmpV.copy(PLAYER.eye).add(new THREE.Vector3(0, -0.06, 0));
   const range = G.lased > 0 ? G.lased : 1000;
@@ -616,6 +617,50 @@ function planHidden() {
   res.push(c.clone());
   RP.pts = res; RP.ok = true; RP.ms = performance.now() - t0;
   return RP;
+}
+// ---- the suggested path: on a stage's last two rounds a line of red dots shows the planned route, from the
+// rifle out to the gate and on in to the target (a straight line to a target in the open). It is rebuilt when
+// each of those rounds comes up (the target may have moved), every few seconds while a machine is on the move,
+// and at the shot for a machine.
+const GUIDE = { pts: [], scr: [], key: '', t: 0, i: 0 };
+function guideBuild() {
+  const P = GUIDE.pts, c = Target.chest, sp = Target.S.spot; P.length = 0; GUIDE.i = 0;
+  if (!Target.S.alive) return;
+  const path = [PLAYER.eye];
+  if (sp && sp.kind !== 'highway' && RP.ok) for (const p of RP.pts) path.push(p); else path.push(c);
+  // a dot every 9 m, every 4.5 m in the last 60 m; none in the first 40 m out of the barrel
+  let next = 40, walked = 0;
+  for (let i = 1; i < path.length && P.length < 160; i++) {
+    const a = path[i - 1], b = path[i], L = a.distanceTo(b); if (L < 1e-3) continue;
+    while (next <= walked + L && P.length < 160) { const q = a.clone().lerp(b, (next - walked) / L); if (q.distanceTo(c) > 3) P.push(q); next += q.distanceTo(c) < 60 ? 4.5 : 9; }
+    walked += L;
+  }
+}
+function guideUpdate(rdt) {
+  const want = !G.demo && !G.mission && Target.S.alive && (G.state === 'flight' || G.state === 'shot' ? G.guideShot : G.state === 'aim' && G.rounds <= 2 && G.rounds > 0);
+  GUIDE.scr.length = 0; G.guideScr = null;
+  if (!want) return;
+  if (G.state === 'aim') {
+    const key = G.stage + ':' + G.rounds; GUIDE.t += rdt;
+    if (GUIDE.key !== key || (Target.S.type !== 'man' && GUIDE.t > 2.5)) { if (Target.S.type !== 'man') Target.refreshSpot(); if (Target.S.spot) planHidden(); guideBuild(); GUIDE.key = key; GUIDE.t = 0; }
+  }
+  const P = GUIDE.pts; if (!P.length) return;
+  // in flight, only the dots still ahead of the round: its progress along the dots only ever moves on, and a
+  // dot behind it (it cut a corner) is left out
+  let i0 = 0; const fl = G.state === 'flight', B = Bullet.S;
+  if (fl) {
+    let bd = 1e18, bi = GUIDE.i;
+    for (let i = GUIDE.i; i < Math.min(P.length, GUIDE.i + 30); i++) { const d = P[i].distanceToSquared(B.p); if (d < bd) { bd = d; bi = i; } }
+    GUIDE.i = bi; i0 = bi + 1;
+  }
+  camera.getWorldDirection(fwd);
+  for (let i = i0; i < P.length; i++) {
+    if (tmpV2.subVectors(P[i], camera.position).dot(fwd) < 1) continue;
+    if (fl && (tmpV2.subVectors(P[i], B.p).dot(B.v) < 0 || P[i].distanceTo(Target.chest) > B.p.distanceTo(Target.chest) + 8)) continue;
+    ndc.copy(P[i]).project(camera); if (Math.abs(ndc.x) > 1.1 || Math.abs(ndc.y) > 1.1) continue;
+    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, P[i].distanceTo(camera.position));
+  }
+  G.guideScr = GUIDE.scr;
 }
 // pure pursuit on the plan: writes the look-ahead point; false once it should just lock on him
 function routeFollow(out, lookK = 0.5) {
@@ -1291,6 +1336,7 @@ function tick(rdt) {
   // HUD projections
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   project(Target.chest, G.tgtScreen);
+  guideUpdate(rdt);
   if (G.mission) { Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false; }   // fire mission: the trucks have their own brackets
   // a car or a quadcopter: its brackets frame its whole box on screen
   G.tgtScreen.bw = 0;

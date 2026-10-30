@@ -113,6 +113,18 @@ const Hud = (() => {
     corners(x0, y0, x1, y1, len, DK, lw + 2.2);
     corners(x0, y0, x1, y1, len, RD, lw);
   }
+  // the suggested path (a stage's last two rounds): red dots on dark, nearer ones bigger; inside the scope
+  // circle when one is given
+  function guideDots(G, cx, cy, Rr) {
+    const S = G.guideScr; if (!S || !S.length) return;
+    ctx.save(); if (Rr) { ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip(); }
+    for (let i = 0; i < S.length; i += 3) {
+      const x = S[i] * W, y = S[i + 1] * H, r = clamp(70 * u / Math.sqrt(Math.max(1, S[i + 2])), 1.8 * u, 5.5 * u);
+      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + 1.5 * u, 0, TAU); ctx.fill();
+      ctx.fillStyle = RD; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
   // chamfered panel with an inverted title tab
   function panel(x, y, w, h, title, opts = {}) {
     const c = (opts.chamfer || 8) * u;
@@ -325,6 +337,7 @@ const Hud = (() => {
     const cx = W / 2, cy = H / 2, R = scopeRadius(G), ir = iris();
     const Rr = R * (0.08 + 0.92 * ir);
     if (ir > 0.3) rimTicks(cx, cy, Rr, (typeof Aim !== 'undefined' ? Aim.yaw : 0) * 3);
+    if (!hideMarkers) guideDots(G, cx, cy, Rr);   // the suggested path, under the reticle
     ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip();
     (G.mission ? mortarReticle : reticle)(cx + G.reticleOff.x * H, cy - G.reticleOff.y * H, Rr);   // fire mission: the mortar sight
     ctx.restore();
@@ -416,6 +429,7 @@ const Hud = (() => {
     let on = false;
     if (tgtB && G.pipScreen.vis) { const px = G.pipScreen.x * W, py = (1 - G.pipScreen.y) * H; on = px > tgtB.x0 && px < tgtB.x1 && py > tgtB.y0 && py < tgtB.y1; }
     corners(m, 70 * u, W - m, H - m, 40 * u, DIM, 1.5);
+    guideDots(G);   // the suggested path, under everything else
     // top-left (under the top bar): round + datalink
     ctx.globalAlpha = fadeFor(36 * u, 76 * u, 200 * u, 50 * u);
     plate(36 * u, 76 * u, 200 * u, 58 * u, 0.62);
@@ -920,7 +934,8 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1,
+      G.guideScr ? G.guideScr.length * 7 + q((G.guideScr[0] || 0) * W) * 13 + q((G.guideScr[1] || 0) * H) * 17 + q((G.guideScr[G.guideScr.length - 3] || 0) * W) : -1);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
