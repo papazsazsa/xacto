@@ -45,6 +45,9 @@ const QS = new URLSearchParams(location.search);
 const TEST = QS.has('test');
 // flight steering: 'stick' (push the round) or 'point' (move an aim marker; the round flies to it)
 const STEER_MODE = QS.get('steer') || 'point';
+// phone / tablet: forced by the mobile build (window.XACTO_MOBILE) or ?touch, otherwise detected from the
+// primary pointer. The HUD also switches to its touch layout on the first touch of any device.
+const MOBILE = !!window.XACTO_MOBILE || QS.has('touch') || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 const BASE_SEED = parseInt(QS.get('seed') || '', 10) || 0;
 
 // City RNG is re-seeded every time a new city is generated.
@@ -5042,7 +5045,7 @@ const Post = (() => {
   function init(r) {
     renderer = r;
     floatOK = !!(r.capabilities.isWebGL2 && (r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float')));
-    maxPr = Math.min(window.devicePixelRatio || 1, 1.75);
+    maxPr = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 1.75);
     if (QS.get('pr')) maxPr = parseFloat(QS.get('pr')) || 1;
     pr = maxPr;
     // 8-bit fallback: depth is quantised to 1/255, so raise the silhouette threshold above one step
@@ -5074,7 +5077,10 @@ const Post = (() => {
     const rs = opt.res || 1;
     const w = Math.max(32, Math.round((rect.n1 - rect.n0) * W * pr * rs)), h = Math.max(24, Math.round((rect.m1 - rect.m0) * H * pr * rs));
     d.uInsetGrain.value = opt.grain || 1; d.uInsetFlat.value = opt.flat || 0;
-    if (!rtInset || rtInset.width !== w || rtInset.height !== h) { if (rtInset) rtInset.dispose(); rtInset = new THREE.WebGLRenderTarget(w, h, { type: floatOK ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }); }
+    const same = rtInset && rtInset.width === w && rtInset.height === h;
+    if (!same) { if (rtInset) rtInset.dispose(); rtInset = new THREE.WebGLRenderTarget(w, h, { type: floatOK ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }); }
+    // opt.skip: keep showing the last drone frame (phones refresh the feed at a third of the frame rate)
+    if (opt.skip && same && d.uInsetOn.value) { d.uInsetRect.value.set(rect.n0, 1 - rect.m1, rect.n1, 1 - rect.m0); return; }
     _uc.copy(U.uCam.value); U.uCam.value.copy(cam.position);
     renderer.setRenderTarget(rtInset); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(scene, cam);
     U.uCam.value.copy(_uc);
@@ -5186,7 +5192,7 @@ const Hud = (() => {
   const ctx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv);
   tex.premultiplyAlpha = true; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
-  let W = 2, H = 2, u = 1, portrait = false, touch = false;
+  let W = 2, H = 2, u = 1, portrait = false, touch = false, touched = false;
   const BR = '#ff0000', DK = '#00ff00', DIM = 'rgba(255,0,0,0.62)', FAINT = 'rgba(255,0,0,0.3)';
   const scrim = (a) => `rgba(0,255,0,${a})`;
   const FA = '"Press Start 2P", monospace', FB = '"VT323", monospace';
@@ -5197,11 +5203,17 @@ const Hud = (() => {
     W = cv.width = Math.max(2, Math.round(w * k)); H = cv.height = Math.max(2, Math.round(h * k));
     portrait = W / H < 1.0;
     u = portrait ? Math.min(W / 600, H / 1100) : Math.min(H / 720, W / 1280);
-    touch = coarse || portrait;
+    touch = coarse || portrait || MOBILE || touched;
     sig.length = 0; scrimGrad = null;
     tex.dispose();                                  // texture storage is allocated once: re-allocate at the new size
   }
-  let scrimGrad = null;
+  // first touch on any device: switch to the touch layout (buttons, hints)
+  function setTouch() { if (!touched) { touched = true; touch = true; sig.length = 0; } }
+  // touch buttons drawn this frame, in screen fractions (0..1, y down), read by the touch input; each one is
+  // given a little more room to hit than it is drawn
+  const buttons = [];
+  function btn(code, x0, y0, x1, y1, pad = 10 * u) { buttons.push({ code, x0: (x0 - pad) / W, y0: (y0 - pad) / H, x1: (x1 + pad) / W, y1: (y1 + pad) / H }); }
+  let scrimGrad = null, G_ref = { modeName: '' };
   // ---- primitives ------------------------------------------------------------
   // Typography system (one 1987 look):
   //   Press Start 2P only for big headline words (24 px design size and up), at whole multiples of 8 px.
@@ -5331,7 +5343,17 @@ const Hud = (() => {
     };
     slot('1UP', pad(G.scoreShown, 7), m, 'left', !play || blink(1) ? BR : DIM);     // arcade pulse, never disappears
     if (G.state === 'flight') return;                                                // flight: score only, the seeker owns the top
-    slot('STAGE', pad(G.stage, 2), W - m, 'right', DIM);
+    slot('STAGE', pad(G.stage, 2), pauseOn(G) ? W - m - 2 * PB * u - 18 * u : W - m, 'right', DIM);
+  }
+  // touch pause button, top right, on the playing screens
+  const PB = 22;
+  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight');
+  function pauseButton(G) {
+    const r = PB * u, x = W - 36 * u - r, y = 32 * u;
+    ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = BR; ctx.fillRect(x - 7 * u, y - 8 * u, 5 * u, 16 * u); ctx.fillRect(x + 2 * u, y - 8 * u, 5 * u, 16 * u);
+    btn('KeyP', x - r, y - r, x + r, y + r, 16 * u);
   }
   function cartridge(x, y, s, filled) {
     // .50 round, nose up: case, shoulder, neck, ogive
@@ -5474,9 +5496,11 @@ const Hud = (() => {
       const bh = 70 * u, top = cy - R * 1.12, bot = cy + R * 1.12;
       const rows = [top - bh * 2 - 30 * u, top - bh - 12 * u, bot + 14 * u];
       readouts(G, { rows, bh });
-      { const dw = W - 28 * u, dh = Math.min(H - rows[2] - 90 * u, dw * 0.55); if (dh > 60 * u) droneFrame(G, 14 * u, rows[2], dw, dh); }
+      const fcol = touch && !G.demo ? 92 * u : 0;
+      const dw = W - 28 * u - fcol, dh = Math.min(H - rows[2] - 90 * u, dw * 0.55);
+      if (dh > 60 * u) droneFrame(G, 14 * u, rows[2], dw, dh);
       txt(`SENSOR ${G.modeName}`, 14 * u, H - 44 * u, 8, 'left', FA, DIM);
-      fireButton(G);
+      fireButton(G, W - 14 * u - 40 * u, rows[2] + Math.max(dh, 80 * u) / 2);
       if (!G.demo) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 18 * u);
     }
     // target marker: open corners outside the man, tracking every frame, label on a dark plate
@@ -5507,9 +5531,9 @@ const Hud = (() => {
     }
     demoBanner(G);
   }
-  function fireButton(G) {
+  function fireButton(G, x = W * 0.9, y = H * 0.83, r = (portrait ? 34 : 48) * u) {
     if (!touch || G.demo) return;
-    const x = W * 0.89, y = H * (portrait ? 0.9 : 0.82), r = 34 * u;
+    btn('Fire', x - r, y - r, x + r, y + r, 22 * u);
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = DIM; ctx.beginPath(); ctx.arc(x, y, r * 0.78, 0, TAU); ctx.stroke();
@@ -5845,7 +5869,7 @@ const Hud = (() => {
       const small = portrait ? 8 : 16;
       if (page === 1) {
         const rows = touch
-          ? [['DRAG', 'AIM THE SCOPE'], ['FIRE BUTTON', 'SHOOT'], ['DRAG IN FLIGHT', 'STEER THE ROUND'], ['BRACKETS', 'MARK A HIDDEN TARGET'], ['', 'HIT THE TARGET, NOT THE CITY']]
+          ? [['DRAG', 'AIM THE SCOPE'], ['FIRE BUTTON', 'SHOOT'], ['DRAG IN FLIGHT', 'MOVE THE MARKER'], ['TAP HIM IN FLIGHT', 'LOCK THE ROUND ON'], ['II BUTTON', 'PAUSE AND SETTINGS']]
           : [['MOUSE OR ARROWS', 'AIM'], ['SPACE OR CLICK', 'FIRE THE ROUND'], ['MOUSE OR ARROWS', STEER_MODE === 'point' ? 'MOVE THE MARKER IN FLIGHT' : 'STEER IN FLIGHT'], ['T  P', 'SENSOR  PAUSE']];
         rows.forEach((r, i) => { txt(r[0], px + pw * 0.06, rowY(i), 8, 'left', FA, DIM); txt(r[1], px + pw * 0.94, rowY(i), small, 'right'); });
       } else {
@@ -5855,6 +5879,7 @@ const Hud = (() => {
     }
     // large start prompt under the table, on 80 % of every second
     if (st > 0.6 && (t % 1) < 0.8) plated(touch ? 'TAP TO START' : 'PRESS SPACE OR CLICK', W / 2, py + ph + 42 * u, portrait ? 16 : 24, 'center', FA, BR, 0.88);
+    if (portrait && touch && blinkLong()) txt('TURN SIDEWAYS FOR A WIDER VIEW', W / 2, H - 92 * u, 8, 'center', FA, DIM);
     shadowTxt('© 1987 VALENTINE ARCADE', W / 2, H - 52 * u, 26);
     shadowTxt('ONE PLAYER   FREE PLAY', W / 2, H - 24 * u, 26);
   }
@@ -5894,7 +5919,7 @@ const Hud = (() => {
       typeTokens(`STEERING BUDGET ${G.diff.budget.toFixed(0)} M/S`, W / 2, y + 60 * u + o, 28, (r - 0.8) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       if (teach) {
         typeTokens('DASHED BRACKETS: HE IS OUT OF SIGHT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
-        typeTokens(STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
+        typeTokens(touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
       }
     }
     ctx.globalAlpha = 1;
@@ -6020,9 +6045,22 @@ const Hud = (() => {
   }
   function paused() {
     ctx.fillStyle = scrim(0.66); ctx.fillRect(0, 0, W, H);
-    const pw = Math.min(W - 28 * u, 520 * u), ph = 250 * u, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+    const pw = Math.min(W - 28 * u, 520 * u), ph = (touch ? 290 : 250) * u, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
     panel(px, py, pw, ph, 'PAUSED', { scrim: 0.8, col: BR, tab: BR });
     txt('PAUSED', W / 2, py + 50 * u, 32, 'center');
+    if (touch) {
+      // three big buttons; a tap anywhere else also resumes
+      const items = [['RESUME', 'KeyP'], [`SENSOR  ${G_ref.modeName}`, 'KeyT'], [`SOUND  ${Sfx.muted ? 'OFF' : 'ON'}`, 'KeyM']];
+      const bw = pw - 68 * u, bh = 46 * u, bx = px + 34 * u;
+      items.forEach(([label, code], i) => {
+        const by = py + 92 * u + i * (bh + 12 * u);
+        ctx.fillStyle = scrim(0.6); ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = i === 0 ? BR : DIM; ctx.lineWidth = 2 * u; ctx.strokeRect(bx, by, bw, bh);
+        txt(label, W / 2, by + bh / 2, 16, 'center');
+        btn(code, bx, by, bx + bw, by + bh, 4 * u);
+      });
+      return;
+    }
     const rows = [['P OR ESC OR CLICK', 'RESUME'], ['T', 'SENSOR MODE'], ['M', 'SOUND ON / OFF']];
     rows.forEach((r, i) => { const y = py + 106 * u + i * 30 * u; txt(r[0], px + 34 * u, y, 8, 'left', FA, DIM); txt(r[1], px + pw - 34 * u, y, 8, 'right'); });
   }
@@ -6036,7 +6074,7 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), G.droneTgt ? q(G.droneTgt.x * 600) : 0, G.droneTgt ? q(G.droneTgt.y * 600) : 0, G.droneSees ? 1 : 0, q(G.droneAlt || 0), G.droneYou ? q(G.droneYou.x * 600) : 0, G.droneYou ? q(G.droneYou.y * 600) : 0, G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
@@ -6048,6 +6086,7 @@ const Hud = (() => {
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
     insetOn = false;   // the scope screens set it again when they draw the drone feed
+    buttons.length = 0; G_ref = G;
     ctx.clearRect(0, 0, W, H);
     switch (G.state) {
       case 'attract': attract(G); break;
@@ -6060,6 +6099,7 @@ const Hud = (() => {
     }
     // one three-slot top bar on every screen except the kill/miss cameras (nothing competes with the payoff)
     if (G.state !== 'killcam' && G.state !== 'misscam') topBar(G);
+    if (pauseOn(G)) pauseButton(G);
     if (G.paused) paused();
     // toasts (the demo prompt is drawn by demoBanner instead); in flight they sit low, clear of the seeker dial
     if (G.toast && G.toastT > 0 && !(G.demo && /^DEMO/.test(G.toast))) {
@@ -6068,7 +6108,7 @@ const Hud = (() => {
     }
     tex.needsUpdate = true;
   }
-  return { cv, tex, resize, draw, get u() { return u; }, get insetRect() { return insetOn ? insetRect : null; } };
+  return { cv, tex, resize, draw, setTouch, buttons, get touch() { return touch; }, get u() { return u; }, get insetRect() { return insetOn ? insetRect : null; } };
 })();
 
 // ==== 09_game.js ====
@@ -6108,7 +6148,7 @@ const DEFAULT_TABLE = [{ n: 'JCB', s: 60000 }, { n: 'MRK', s: 45000 }, { n: 'SGT
 
 
 // ---- input -----------------------------------------------------------------
-const Input = { keys: new Set(), dx: 0, dy: 0, wheel: 0, mx: 0.5, my: 0.5, inside: false, pressed: new Set(), touchAim: null };
+const Input = { keys: new Set(), dx: 0, dy: 0, wheel: 0, mx: 0.5, my: 0.5, inside: false, pressed: new Set(), touchAim: null, tap: null };
 const canvas = renderer.domElement;
 const GAME_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
 window.addEventListener('keydown', (e) => {
@@ -6130,26 +6170,57 @@ canvas.addEventListener('mousedown', (e) => {
 });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); Input.wheel += Math.sign(e.deltaY); }, { passive: false });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// Touch: on-screen buttons first (fire, pause, and the pause screen's sensor / sound / resume, laid out by the
+// HUD in Hud.buttons); a drag anywhere else aims the scope, or moves the marker in flight; a quick tap in
+// flight locks the round onto him when it lands on him, otherwise it puts the marker under the finger.
+// On the between-shot screens any tap continues.
+const TAP_MS = 280, TAP_PX = 14;
+function touchButton(nx, ny) {
+  const b = Hud.buttons;
+  for (let i = b.length - 1; i >= 0; i--) { const r = b[i]; if (nx >= r.x0 && nx <= r.x1 && ny >= r.y0 && ny <= r.y1) return r.code; }
+  return null;
+}
+let fullTried = false;
+function goFull() {
+  // phones: try for full screen and landscape on the first tap (refused inside some hosts; that's fine)
+  if (fullTried || !MOBILE) return; fullTried = true;
+  const el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen;
+  try {
+    const p = rq && rq.call(el, { navigationUI: 'hide' });
+    if (p && p.then) p.then(() => { try { const q = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (q && q.catch) q.catch(() => {}); } catch (err) { /* not supported */ } }).catch(() => {});
+  } catch (err) { /* not allowed here */ }
+}
 canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault(); Sfx.init();
+  e.preventDefault(); Sfx.init(); Hud.setTouch(); goFull();
   if (G.state === 'initials') {
     // touch initials: tap the upper third / lower third to change the letter, the middle to confirm
     const y = e.changedTouches[0].clientY / innerHeight;
     Input.pressed.add(y < 0.38 ? 'ArrowUp' : y > 0.72 ? 'ArrowDown' : 'Fire');
     return;
   }
+  const skip = G.paused || G.demo || G.state === 'attract' || G.state === 'tally' || G.state === 'gameover' || G.state === 'killcam' || G.state === 'misscam';
   for (const t of e.changedTouches) {
-    const x = t.clientX / innerWidth, y = t.clientY / innerHeight;
-    if (x > 0.78 && y > 0.6) Input.pressed.add('Fire');
-    else Input.touchAim = { id: t.identifier, x: t.clientX, y: t.clientY };
+    const code = touchButton(t.clientX / innerWidth, t.clientY / innerHeight);
+    if (code) { Input.pressed.add(code); continue; }
+    if (skip) { Input.pressed.add('Fire'); continue; }
+    if (!Input.touchAim) Input.touchAim = { id: t.identifier, x: t.clientX, y: t.clientY, x0: t.clientX, y0: t.clientY, t0: performance.now() };
   }
-  if (G.paused || G.demo || G.state === 'attract' || G.state === 'tally' || G.state === 'gameover' || G.state === 'killcam' || G.state === 'misscam') Input.pressed.add('Fire');
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
   for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { Input.dx += (t.clientX - Input.touchAim.x) * 1.6; Input.dy += (t.clientY - Input.touchAim.y) * 1.6; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
 }, { passive: false });
-canvas.addEventListener('touchend', (e) => { for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) Input.touchAim = null; });
+function touchEnd(e) {
+  Sfx.init();   // iOS unlocks audio on touchend
+  for (const t of e.changedTouches) {
+    const a = Input.touchAim;
+    if (!a || t.identifier !== a.id) continue;
+    if (e.type === 'touchend' && performance.now() - a.t0 < TAP_MS && Math.hypot(t.clientX - a.x0, t.clientY - a.y0) < TAP_PX) Input.tap = { x: t.clientX / innerWidth, y: t.clientY / innerHeight };
+    Input.touchAim = null;
+  }
+}
+canvas.addEventListener('touchend', touchEnd);
+canvas.addEventListener('touchcancel', touchEnd);
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.state !== 'attract') G.paused = true; });
 const pressed = (...codes) => codes.some((c) => Input.pressed.has(c));
 const held = (...codes) => codes.some((c) => Input.keys.has(c));
@@ -6485,6 +6556,26 @@ function aimUpdate(rdt, input) {
   }
   if (G.aimLock && Target.S.alive) { G.aimP.copy(c); G.aimTgt.copy(G.aimLead); G.aimSpent = false; G.aimDepth = null; }
   else G.aimTgt.copy(G.aimP);
+}
+// touch: a quick tap in flight. On him (or his brackets) it locks the round onto him; anywhere else it puts
+// the marker under the finger, at the depth it had, never past the first wall along that line.
+function touchMarker(tp) {
+  const c = Target.chest;
+  if (Target.S.alive) {
+    project(c, aimS2);
+    if (aimS2.vis) {
+      const d = Math.hypot((aimS2.x - tp.x) * innerWidth, (1 - aimS2.y - tp.y) * innerHeight);
+      if (d < Math.max(44, aimS2.h * innerHeight * 0.9)) { G.aimLock = true; G.aimArmed = true; G.aimSpent = false; G.aimDepth = null; Sfx.tick(); return; }
+    }
+  }
+  camera.getWorldDirection(fwd);
+  if (G.aimDepth == null || G.aimLock) G.aimDepth = Math.max(20, tmpV2.subVectors(G.aimLock ? c : G.aimP, camera.position).dot(fwd));
+  tmpV.set(tp.x * 2 - 1, 1 - tp.y * 2, 0.5).unproject(camera).sub(camera.position).normalize();
+  let along = G.aimDepth / Math.max(0.05, tmpV.dot(fwd));
+  if (City.raycast(camera.position, tmpV, along)) along = Math.max(6, City.hit.t - 5);
+  G.aimP.copy(camera.position).addScaledVector(tmpV, along);
+  if (G.aimLock) G.aimArmed = false;
+  G.aimLock = false; G.aimSpent = false;
 }
 // ---- route planner (autopilot, attract demo, test bots): A* over a 2 m voxel grid around the man, from a
 // gate above the skyline on the shooter's side down to him. Buildings are padded (more sideways than
@@ -7021,7 +7112,7 @@ function tick(rdt) {
   if (G.paused) {
     // click / tap / space also resumes (and is swallowed, so it never fires a round)
     if (pressed('Fire', 'Space', 'Enter')) G.paused = false;
-    Input.pressed.clear(); Input.dx = Input.dy = Input.wheel = 0; return;
+    Input.pressed.clear(); Input.tap = null; Input.dx = Input.dy = Input.wheel = 0; return;
   }
   G.stateT += rdt;
   G.scoreShown = G.scoreShown < G.score ? Math.min(G.score, G.scoreShown + Math.max(37, (G.score - G.scoreShown) * 4 * rdt)) : G.score;
@@ -7075,7 +7166,7 @@ function tick(rdt) {
       }
       const botOn = !!(window.__X && window.__X.bot);
       if (G.auto || G.demo) autoMarker();
-      else if (POINT) { aimUpdate(rdt, !botOn); if (botOn) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
+      else if (POINT) { if (Input.tap && !botOn) touchMarker(Input.tap); aimUpdate(rdt, !botOn); if (botOn) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
       // last-ditch terminal lock: close in, roughly pointed at him, with an open line to him (glass counts as
@@ -7238,7 +7329,7 @@ function tick(rdt) {
   G.coverSide = Target.S.app ? Target.S.app.side : '';
   updatePipper(rdt);
 
-  Input.pressed.clear(); Input.dx = Input.dy = Input.wheel = 0;
+  Input.pressed.clear(); Input.tap = null; Input.dx = Input.dy = Input.wheel = 0;
 }
 
 // Predicted-impact pipper as the player sees it: only after seeker lock, with sensor noise (metres at the
@@ -7321,12 +7412,13 @@ function render() {
   if (ir) {
     droneCam.aspect = (ir.x1 - ir.x0) / (ir.y1 - ir.y0); droneCam.updateProjectionMatrix(); droneCam.updateMatrixWorld();
     const gv = manGlow.visible; manGlow.visible = false; droneMesh.visible = droneBeacon.visible = false;
-    Post.renderInset(scene, droneCam, ir, { res: 0.5, grain: 3.2, flat: 0.22 });
+    Post.renderInset(scene, droneCam, ir, { res: 0.5, grain: 3.2, flat: 0.22, skip: MOBILE && (insetN++ % 3) !== 0 });
     manGlow.visible = gv; droneMesh.visible = droneBeacon.visible = true;
   } else Post.renderInset(null);
   Post.render(scene, camera, Hud.tex);
 }
 
+let insetN = 0;
 function onResize() {
   Post.resize(innerWidth, innerHeight);
   Hud.resize(innerWidth, innerHeight);

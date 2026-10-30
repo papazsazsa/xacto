@@ -259,7 +259,7 @@ const Post = (() => {
   function init(r) {
     renderer = r;
     floatOK = !!(r.capabilities.isWebGL2 && (r.extensions.has('EXT_color_buffer_float') || r.extensions.has('EXT_color_buffer_half_float')));
-    maxPr = Math.min(window.devicePixelRatio || 1, 1.75);
+    maxPr = Math.min(window.devicePixelRatio || 1, MOBILE ? 1.5 : 1.75);
     if (QS.get('pr')) maxPr = parseFloat(QS.get('pr')) || 1;
     pr = maxPr;
     // 8-bit fallback: depth is quantised to 1/255, so raise the silhouette threshold above one step
@@ -291,7 +291,10 @@ const Post = (() => {
     const rs = opt.res || 1;
     const w = Math.max(32, Math.round((rect.n1 - rect.n0) * W * pr * rs)), h = Math.max(24, Math.round((rect.m1 - rect.m0) * H * pr * rs));
     d.uInsetGrain.value = opt.grain || 1; d.uInsetFlat.value = opt.flat || 0;
-    if (!rtInset || rtInset.width !== w || rtInset.height !== h) { if (rtInset) rtInset.dispose(); rtInset = new THREE.WebGLRenderTarget(w, h, { type: floatOK ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }); }
+    const same = rtInset && rtInset.width === w && rtInset.height === h;
+    if (!same) { if (rtInset) rtInset.dispose(); rtInset = new THREE.WebGLRenderTarget(w, h, { type: floatOK ? THREE.HalfFloatType : THREE.UnsignedByteType, samples: 4, depthBuffer: true, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }); }
+    // opt.skip: keep showing the last drone frame (phones refresh the feed at a third of the frame rate)
+    if (opt.skip && same && d.uInsetOn.value) { d.uInsetRect.value.set(rect.n0, 1 - rect.m1, rect.n1, 1 - rect.m0); return; }
     _uc.copy(U.uCam.value); U.uCam.value.copy(cam.position);
     renderer.setRenderTarget(rtInset); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(scene, cam);
     U.uCam.value.copy(_uc);

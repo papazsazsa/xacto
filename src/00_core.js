@@ -20,6 +20,9 @@ const QS = new URLSearchParams(location.search);
 const TEST = QS.has('test');
 // flight steering: 'stick' (push the round) or 'point' (move an aim marker; the round flies to it)
 const STEER_MODE = QS.get('steer') || 'point';
+// phone / tablet: forced by the mobile build (window.XACTO_MOBILE) or ?touch, otherwise detected from the
+// primary pointer. The HUD also switches to its touch layout on the first touch of any device.
+const MOBILE = !!window.XACTO_MOBILE || QS.has('touch') || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
 const BASE_SEED = parseInt(QS.get('seed') || '', 10) || 0;
 
 // City RNG is re-seeded every time a new city is generated.

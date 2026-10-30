@@ -4,30 +4,33 @@ An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-s
 
 © 1987 VALENTINE ARCADE (fictional).
 
+## Play
+
+1. Web (desktop browsers): https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV
+2. Mobile (phones and tablets): https://claude.ai/artifact/VAyEH7qNHX4P3jLnwbpEys
+
+Both pages are built from the same source. The web page also switches to touch controls by itself on a touch screen. The mobile page always uses the touch layout and renders the drone feed at a third of the frame rate to save battery.
+
+Touch controls: drag to aim, tap FIRE to shoot. In flight, drag to move the marker, or tap the target to lock the round onto him. The II button opens pause, sensor mode and sound.
+
 ## Builds
 
 | File | What it is |
 | --- | --- |
-| `dist/xacto_corners.html` | Current build ("XACTO Corners Test"): guided round, ricochet, terminal lock, hidden targets, three characters |
-| `dist/xacto_artifact.html` | Same build packaged as a single self-contained page |
-| `dist/xacto.html` | Plain build output |
+| `dist/xacto_web.html` | Web page, published to the web link |
+| `dist/xacto_mobile.html` | Mobile page (touch layout forced on), published to the mobile link |
+| `dist/xacto.html` | Plain build output for local testing |
 | `baseline/xacto_v*.html` | Earlier versions, kept for reference |
-
-Published on claude.ai:
-
-1. Corners build: https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV
-2. Older main build: https://claude.ai/artifact/UztgoBm4Yd5tN7FfdE6bhX
 
 ## Building
 
 ```
-node tools/build.mjs
 node tools/build_artifact.mjs .
-cp dist/xacto_artifact.html dist/xacto_corners.html
-sed -i 's#<title>[^<]*</title>#<title>XACTO Corners Test</title>#' dist/xacto_corners.html
 ```
 
-The modules in `src/` are concatenated in name order into one `<script type="module">`. See `BRIEF.md` for the full code layout and the test hooks on `window.__X`.
+This builds `dist/xacto.html` from `src/`, then writes the web and mobile pages. The modules in `src/` are concatenated in name order into one `<script type="module">`. See `BRIEF.md` for the full code layout and the test hooks on `window.__X`.
+
+Phone screenshots for testing: `MOBILE=1 DSF=2 node tools/snap.mjs dist/xacto.html <out> "<steps>" 844 390`.
 
 ## Layout
 

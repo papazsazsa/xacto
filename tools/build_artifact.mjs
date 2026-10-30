@@ -11,3 +11,10 @@ s = s.replace(/<!doctype html>\s*/i, '').replace(/<html[^>]*>\s*/i, '').replace(
 s = s.replace(/<title>[^<]*<\/title>\s*/i, ''); s = '<title>XACTO</title>\n' + s;
 const out = path.join(root, 'dist', 'xacto_artifact.html'); fs.writeFileSync(out, s);
 console.log('artifact page', out, (fs.statSync(out).size / 1024).toFixed(1) + ' KB');
+// the two published pages, built from the same source: web (detects touch by itself) and mobile (touch
+// layout forced on, lighter rendering)
+const web = s.replace(/^<title>[^<]*<\/title>/, '<title>XACTO Web</title>');
+const mobile = s.replace(/^<title>[^<]*<\/title>/, '<title>XACTO Mobile</title>\n<script>window.XACTO_MOBILE = 1;</script>');
+fs.writeFileSync(path.join(root, 'dist', 'xacto_web.html'), web);
+fs.writeFileSync(path.join(root, 'dist', 'xacto_mobile.html'), mobile);
+console.log('web page dist/xacto_web.html, mobile page dist/xacto_mobile.html');

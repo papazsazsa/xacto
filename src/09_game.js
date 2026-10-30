@@ -34,7 +34,7 @@ const DEFAULT_TABLE = [{ n: 'JCB', s: 60000 }, { n: 'MRK', s: 45000 }, { n: 'SGT
 
 
 // ---- input -----------------------------------------------------------------
-const Input = { keys: new Set(), dx: 0, dy: 0, wheel: 0, mx: 0.5, my: 0.5, inside: false, pressed: new Set(), touchAim: null };
+const Input = { keys: new Set(), dx: 0, dy: 0, wheel: 0, mx: 0.5, my: 0.5, inside: false, pressed: new Set(), touchAim: null, tap: null };
 const canvas = renderer.domElement;
 const GAME_KEYS = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ShiftLeft', 'ShiftRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'];
 window.addEventListener('keydown', (e) => {
@@ -56,26 +56,57 @@ canvas.addEventListener('mousedown', (e) => {
 });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); Input.wheel += Math.sign(e.deltaY); }, { passive: false });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// Touch: on-screen buttons first (fire, pause, and the pause screen's sensor / sound / resume, laid out by the
+// HUD in Hud.buttons); a drag anywhere else aims the scope, or moves the marker in flight; a quick tap in
+// flight locks the round onto him when it lands on him, otherwise it puts the marker under the finger.
+// On the between-shot screens any tap continues.
+const TAP_MS = 280, TAP_PX = 14;
+function touchButton(nx, ny) {
+  const b = Hud.buttons;
+  for (let i = b.length - 1; i >= 0; i--) { const r = b[i]; if (nx >= r.x0 && nx <= r.x1 && ny >= r.y0 && ny <= r.y1) return r.code; }
+  return null;
+}
+let fullTried = false;
+function goFull() {
+  // phones: try for full screen and landscape on the first tap (refused inside some hosts; that's fine)
+  if (fullTried || !MOBILE) return; fullTried = true;
+  const el = document.documentElement, rq = el.requestFullscreen || el.webkitRequestFullscreen;
+  try {
+    const p = rq && rq.call(el, { navigationUI: 'hide' });
+    if (p && p.then) p.then(() => { try { const q = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (q && q.catch) q.catch(() => {}); } catch (err) { /* not supported */ } }).catch(() => {});
+  } catch (err) { /* not allowed here */ }
+}
 canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault(); Sfx.init();
+  e.preventDefault(); Sfx.init(); Hud.setTouch(); goFull();
   if (G.state === 'initials') {
     // touch initials: tap the upper third / lower third to change the letter, the middle to confirm
     const y = e.changedTouches[0].clientY / innerHeight;
     Input.pressed.add(y < 0.38 ? 'ArrowUp' : y > 0.72 ? 'ArrowDown' : 'Fire');
     return;
   }
+  const skip = G.paused || G.demo || G.state === 'attract' || G.state === 'tally' || G.state === 'gameover' || G.state === 'killcam' || G.state === 'misscam';
   for (const t of e.changedTouches) {
-    const x = t.clientX / innerWidth, y = t.clientY / innerHeight;
-    if (x > 0.78 && y > 0.6) Input.pressed.add('Fire');
-    else Input.touchAim = { id: t.identifier, x: t.clientX, y: t.clientY };
+    const code = touchButton(t.clientX / innerWidth, t.clientY / innerHeight);
+    if (code) { Input.pressed.add(code); continue; }
+    if (skip) { Input.pressed.add('Fire'); continue; }
+    if (!Input.touchAim) Input.touchAim = { id: t.identifier, x: t.clientX, y: t.clientY, x0: t.clientX, y0: t.clientY, t0: performance.now() };
   }
-  if (G.paused || G.demo || G.state === 'attract' || G.state === 'tally' || G.state === 'gameover' || G.state === 'killcam' || G.state === 'misscam') Input.pressed.add('Fire');
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
   for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { Input.dx += (t.clientX - Input.touchAim.x) * 1.6; Input.dy += (t.clientY - Input.touchAim.y) * 1.6; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
 }, { passive: false });
-canvas.addEventListener('touchend', (e) => { for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) Input.touchAim = null; });
+function touchEnd(e) {
+  Sfx.init();   // iOS unlocks audio on touchend
+  for (const t of e.changedTouches) {
+    const a = Input.touchAim;
+    if (!a || t.identifier !== a.id) continue;
+    if (e.type === 'touchend' && performance.now() - a.t0 < TAP_MS && Math.hypot(t.clientX - a.x0, t.clientY - a.y0) < TAP_PX) Input.tap = { x: t.clientX / innerWidth, y: t.clientY / innerHeight };
+    Input.touchAim = null;
+  }
+}
+canvas.addEventListener('touchend', touchEnd);
+canvas.addEventListener('touchcancel', touchEnd);
 document.addEventListener('visibilitychange', () => { if (document.hidden && G.state !== 'attract') G.paused = true; });
 const pressed = (...codes) => codes.some((c) => Input.pressed.has(c));
 const held = (...codes) => codes.some((c) => Input.keys.has(c));
@@ -411,6 +442,26 @@ function aimUpdate(rdt, input) {
   }
   if (G.aimLock && Target.S.alive) { G.aimP.copy(c); G.aimTgt.copy(G.aimLead); G.aimSpent = false; G.aimDepth = null; }
   else G.aimTgt.copy(G.aimP);
+}
+// touch: a quick tap in flight. On him (or his brackets) it locks the round onto him; anywhere else it puts
+// the marker under the finger, at the depth it had, never past the first wall along that line.
+function touchMarker(tp) {
+  const c = Target.chest;
+  if (Target.S.alive) {
+    project(c, aimS2);
+    if (aimS2.vis) {
+      const d = Math.hypot((aimS2.x - tp.x) * innerWidth, (1 - aimS2.y - tp.y) * innerHeight);
+      if (d < Math.max(44, aimS2.h * innerHeight * 0.9)) { G.aimLock = true; G.aimArmed = true; G.aimSpent = false; G.aimDepth = null; Sfx.tick(); return; }
+    }
+  }
+  camera.getWorldDirection(fwd);
+  if (G.aimDepth == null || G.aimLock) G.aimDepth = Math.max(20, tmpV2.subVectors(G.aimLock ? c : G.aimP, camera.position).dot(fwd));
+  tmpV.set(tp.x * 2 - 1, 1 - tp.y * 2, 0.5).unproject(camera).sub(camera.position).normalize();
+  let along = G.aimDepth / Math.max(0.05, tmpV.dot(fwd));
+  if (City.raycast(camera.position, tmpV, along)) along = Math.max(6, City.hit.t - 5);
+  G.aimP.copy(camera.position).addScaledVector(tmpV, along);
+  if (G.aimLock) G.aimArmed = false;
+  G.aimLock = false; G.aimSpent = false;
 }
 // ---- route planner (autopilot, attract demo, test bots): A* over a 2 m voxel grid around the man, from a
 // gate above the skyline on the shooter's side down to him. Buildings are padded (more sideways than
@@ -947,7 +998,7 @@ function tick(rdt) {
   if (G.paused) {
     // click / tap / space also resumes (and is swallowed, so it never fires a round)
     if (pressed('Fire', 'Space', 'Enter')) G.paused = false;
-    Input.pressed.clear(); Input.dx = Input.dy = Input.wheel = 0; return;
+    Input.pressed.clear(); Input.tap = null; Input.dx = Input.dy = Input.wheel = 0; return;
   }
   G.stateT += rdt;
   G.scoreShown = G.scoreShown < G.score ? Math.min(G.score, G.scoreShown + Math.max(37, (G.score - G.scoreShown) * 4 * rdt)) : G.score;
@@ -1001,7 +1052,7 @@ function tick(rdt) {
       }
       const botOn = !!(window.__X && window.__X.bot);
       if (G.auto || G.demo) autoMarker();
-      else if (POINT) { aimUpdate(rdt, !botOn); if (botOn) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
+      else if (POINT) { if (Input.tap && !botOn) touchMarker(Input.tap); aimUpdate(rdt, !botOn); if (botOn) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
       // last-ditch terminal lock: close in, roughly pointed at him, with an open line to him (glass counts as
@@ -1164,7 +1215,7 @@ function tick(rdt) {
   G.coverSide = Target.S.app ? Target.S.app.side : '';
   updatePipper(rdt);
 
-  Input.pressed.clear(); Input.dx = Input.dy = Input.wheel = 0;
+  Input.pressed.clear(); Input.tap = null; Input.dx = Input.dy = Input.wheel = 0;
 }
 
 // Predicted-impact pipper as the player sees it: only after seeker lock, with sensor noise (metres at the
@@ -1247,12 +1298,13 @@ function render() {
   if (ir) {
     droneCam.aspect = (ir.x1 - ir.x0) / (ir.y1 - ir.y0); droneCam.updateProjectionMatrix(); droneCam.updateMatrixWorld();
     const gv = manGlow.visible; manGlow.visible = false; droneMesh.visible = droneBeacon.visible = false;
-    Post.renderInset(scene, droneCam, ir, { res: 0.5, grain: 3.2, flat: 0.22 });
+    Post.renderInset(scene, droneCam, ir, { res: 0.5, grain: 3.2, flat: 0.22, skip: MOBILE && (insetN++ % 3) !== 0 });
     manGlow.visible = gv; droneMesh.visible = droneBeacon.visible = true;
   } else Post.renderInset(null);
   Post.render(scene, camera, Hud.tex);
 }
 
+let insetN = 0;
 function onResize() {
   Post.resize(innerWidth, innerHeight);
   Hud.resize(innerWidth, innerHeight);

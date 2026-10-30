@@ -12,7 +12,7 @@ const Hud = (() => {
   const ctx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv);
   tex.premultiplyAlpha = true; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
-  let W = 2, H = 2, u = 1, portrait = false, touch = false;
+  let W = 2, H = 2, u = 1, portrait = false, touch = false, touched = false;
   const BR = '#ff0000', DK = '#00ff00', DIM = 'rgba(255,0,0,0.62)', FAINT = 'rgba(255,0,0,0.3)';
   const scrim = (a) => `rgba(0,255,0,${a})`;
   const FA = '"Press Start 2P", monospace', FB = '"VT323", monospace';
@@ -23,11 +23,17 @@ const Hud = (() => {
     W = cv.width = Math.max(2, Math.round(w * k)); H = cv.height = Math.max(2, Math.round(h * k));
     portrait = W / H < 1.0;
     u = portrait ? Math.min(W / 600, H / 1100) : Math.min(H / 720, W / 1280);
-    touch = coarse || portrait;
+    touch = coarse || portrait || MOBILE || touched;
     sig.length = 0; scrimGrad = null;
     tex.dispose();                                  // texture storage is allocated once: re-allocate at the new size
   }
-  let scrimGrad = null;
+  // first touch on any device: switch to the touch layout (buttons, hints)
+  function setTouch() { if (!touched) { touched = true; touch = true; sig.length = 0; } }
+  // touch buttons drawn this frame, in screen fractions (0..1, y down), read by the touch input; each one is
+  // given a little more room to hit than it is drawn
+  const buttons = [];
+  function btn(code, x0, y0, x1, y1, pad = 10 * u) { buttons.push({ code, x0: (x0 - pad) / W, y0: (y0 - pad) / H, x1: (x1 + pad) / W, y1: (y1 + pad) / H }); }
+  let scrimGrad = null, G_ref = { modeName: '' };
   // ---- primitives ------------------------------------------------------------
   // Typography system (one 1987 look):
   //   Press Start 2P only for big headline words (24 px design size and up), at whole multiples of 8 px.
@@ -157,7 +163,17 @@ const Hud = (() => {
     };
     slot('1UP', pad(G.scoreShown, 7), m, 'left', !play || blink(1) ? BR : DIM);     // arcade pulse, never disappears
     if (G.state === 'flight') return;                                                // flight: score only, the seeker owns the top
-    slot('STAGE', pad(G.stage, 2), W - m, 'right', DIM);
+    slot('STAGE', pad(G.stage, 2), pauseOn(G) ? W - m - 2 * PB * u - 18 * u : W - m, 'right', DIM);
+  }
+  // touch pause button, top right, on the playing screens
+  const PB = 22;
+  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight');
+  function pauseButton(G) {
+    const r = PB * u, x = W - 36 * u - r, y = 32 * u;
+    ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = BR; ctx.fillRect(x - 7 * u, y - 8 * u, 5 * u, 16 * u); ctx.fillRect(x + 2 * u, y - 8 * u, 5 * u, 16 * u);
+    btn('KeyP', x - r, y - r, x + r, y + r, 16 * u);
   }
   function cartridge(x, y, s, filled) {
     // .50 round, nose up: case, shoulder, neck, ogive
@@ -300,9 +316,11 @@ const Hud = (() => {
       const bh = 70 * u, top = cy - R * 1.12, bot = cy + R * 1.12;
       const rows = [top - bh * 2 - 30 * u, top - bh - 12 * u, bot + 14 * u];
       readouts(G, { rows, bh });
-      { const dw = W - 28 * u, dh = Math.min(H - rows[2] - 90 * u, dw * 0.55); if (dh > 60 * u) droneFrame(G, 14 * u, rows[2], dw, dh); }
+      const fcol = touch && !G.demo ? 92 * u : 0;
+      const dw = W - 28 * u - fcol, dh = Math.min(H - rows[2] - 90 * u, dw * 0.55);
+      if (dh > 60 * u) droneFrame(G, 14 * u, rows[2], dw, dh);
       txt(`SENSOR ${G.modeName}`, 14 * u, H - 44 * u, 8, 'left', FA, DIM);
-      fireButton(G);
+      fireButton(G, W - 14 * u - 40 * u, rows[2] + Math.max(dh, 80 * u) / 2);
       if (!G.demo) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 18 * u);
     }
     // target marker: open corners outside the man, tracking every frame, label on a dark plate
@@ -333,9 +351,9 @@ const Hud = (() => {
     }
     demoBanner(G);
   }
-  function fireButton(G) {
+  function fireButton(G, x = W * 0.9, y = H * 0.83, r = (portrait ? 34 : 48) * u) {
     if (!touch || G.demo) return;
-    const x = W * 0.89, y = H * (portrait ? 0.9 : 0.82), r = 34 * u;
+    btn('Fire', x - r, y - r, x + r, y + r, 22 * u);
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = DIM; ctx.beginPath(); ctx.arc(x, y, r * 0.78, 0, TAU); ctx.stroke();
@@ -671,7 +689,7 @@ const Hud = (() => {
       const small = portrait ? 8 : 16;
       if (page === 1) {
         const rows = touch
-          ? [['DRAG', 'AIM THE SCOPE'], ['FIRE BUTTON', 'SHOOT'], ['DRAG IN FLIGHT', 'STEER THE ROUND'], ['BRACKETS', 'MARK A HIDDEN TARGET'], ['', 'HIT THE TARGET, NOT THE CITY']]
+          ? [['DRAG', 'AIM THE SCOPE'], ['FIRE BUTTON', 'SHOOT'], ['DRAG IN FLIGHT', 'MOVE THE MARKER'], ['TAP HIM IN FLIGHT', 'LOCK THE ROUND ON'], ['II BUTTON', 'PAUSE AND SETTINGS']]
           : [['MOUSE OR ARROWS', 'AIM'], ['SPACE OR CLICK', 'FIRE THE ROUND'], ['MOUSE OR ARROWS', STEER_MODE === 'point' ? 'MOVE THE MARKER IN FLIGHT' : 'STEER IN FLIGHT'], ['T  P', 'SENSOR  PAUSE']];
         rows.forEach((r, i) => { txt(r[0], px + pw * 0.06, rowY(i), 8, 'left', FA, DIM); txt(r[1], px + pw * 0.94, rowY(i), small, 'right'); });
       } else {
@@ -681,6 +699,7 @@ const Hud = (() => {
     }
     // large start prompt under the table, on 80 % of every second
     if (st > 0.6 && (t % 1) < 0.8) plated(touch ? 'TAP TO START' : 'PRESS SPACE OR CLICK', W / 2, py + ph + 42 * u, portrait ? 16 : 24, 'center', FA, BR, 0.88);
+    if (portrait && touch && blinkLong()) txt('TURN SIDEWAYS FOR A WIDER VIEW', W / 2, H - 92 * u, 8, 'center', FA, DIM);
     shadowTxt('© 1987 VALENTINE ARCADE', W / 2, H - 52 * u, 26);
     shadowTxt('ONE PLAYER   FREE PLAY', W / 2, H - 24 * u, 26);
   }
@@ -720,7 +739,7 @@ const Hud = (() => {
       typeTokens(`STEERING BUDGET ${G.diff.budget.toFixed(0)} M/S`, W / 2, y + 60 * u + o, 28, (r - 0.8) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       if (teach) {
         typeTokens('DASHED BRACKETS: HE IS OUT OF SIGHT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
-        typeTokens(STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
+        typeTokens(touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
       }
     }
     ctx.globalAlpha = 1;
@@ -846,9 +865,22 @@ const Hud = (() => {
   }
   function paused() {
     ctx.fillStyle = scrim(0.66); ctx.fillRect(0, 0, W, H);
-    const pw = Math.min(W - 28 * u, 520 * u), ph = 250 * u, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
+    const pw = Math.min(W - 28 * u, 520 * u), ph = (touch ? 290 : 250) * u, px = W / 2 - pw / 2, py = H / 2 - ph / 2;
     panel(px, py, pw, ph, 'PAUSED', { scrim: 0.8, col: BR, tab: BR });
     txt('PAUSED', W / 2, py + 50 * u, 32, 'center');
+    if (touch) {
+      // three big buttons; a tap anywhere else also resumes
+      const items = [['RESUME', 'KeyP'], [`SENSOR  ${G_ref.modeName}`, 'KeyT'], [`SOUND  ${Sfx.muted ? 'OFF' : 'ON'}`, 'KeyM']];
+      const bw = pw - 68 * u, bh = 46 * u, bx = px + 34 * u;
+      items.forEach(([label, code], i) => {
+        const by = py + 92 * u + i * (bh + 12 * u);
+        ctx.fillStyle = scrim(0.6); ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeStyle = i === 0 ? BR : DIM; ctx.lineWidth = 2 * u; ctx.strokeRect(bx, by, bw, bh);
+        txt(label, W / 2, by + bh / 2, 16, 'center');
+        btn(code, bx, by, bx + bw, by + bh, 4 * u);
+      });
+      return;
+    }
     const rows = [['P OR ESC OR CLICK', 'RESUME'], ['T', 'SENSOR MODE'], ['M', 'SOUND ON / OFF']];
     rows.forEach((r, i) => { const y = py + 106 * u + i * 30 * u; txt(r[0], px + 34 * u, y, 8, 'left', FA, DIM); txt(r[1], px + pw - 34 * u, y, 8, 'right'); });
   }
@@ -862,7 +894,7 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), G.droneTgt ? q(G.droneTgt.x * 600) : 0, G.droneTgt ? q(G.droneTgt.y * 600) : 0, G.droneSees ? 1 : 0, q(G.droneAlt || 0), G.droneYou ? q(G.droneYou.x * 600) : 0, G.droneYou ? q(G.droneYou.y * 600) : 0, G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
@@ -874,6 +906,7 @@ const Hud = (() => {
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
     insetOn = false;   // the scope screens set it again when they draw the drone feed
+    buttons.length = 0; G_ref = G;
     ctx.clearRect(0, 0, W, H);
     switch (G.state) {
       case 'attract': attract(G); break;
@@ -886,6 +919,7 @@ const Hud = (() => {
     }
     // one three-slot top bar on every screen except the kill/miss cameras (nothing competes with the payoff)
     if (G.state !== 'killcam' && G.state !== 'misscam') topBar(G);
+    if (pauseOn(G)) pauseButton(G);
     if (G.paused) paused();
     // toasts (the demo prompt is drawn by demoBanner instead); in flight they sit low, clear of the seeker dial
     if (G.toast && G.toastT > 0 && !(G.demo && /^DEMO/.test(G.toast))) {
@@ -894,5 +928,5 @@ const Hud = (() => {
     }
     tex.needsUpdate = true;
   }
-  return { cv, tex, resize, draw, get u() { return u; }, get insetRect() { return insetOn ? insetRect : null; } };
+  return { cv, tex, resize, draw, setTouch, buttons, get touch() { return touch; }, get u() { return u; }, get insetRect() { return insetOn ? insetRect : null; } };
 })();

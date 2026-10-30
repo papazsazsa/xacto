@@ -6,7 +6,7 @@ const require = createRequire('/opt/npm-tools/node_modules/'); const { chromium 
 const here = path.dirname(new URL(import.meta.url).pathname), vendor = path.join(here, '..', 'vendor');
 const [, , htmlArg, outArg, setup = '[]', wA = '1280', hA = '720', q = ''] = process.argv;
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const page = await browser.newPage({ viewport: { width: +wA, height: +hA }, deviceScaleFactor: 1 });
+const page = await browser.newPage({ viewport: { width: +wA, height: +hA }, deviceScaleFactor: +(process.env.DSF || 1), hasTouch: !!process.env.MOBILE, isMobile: !!process.env.MOBILE });
 const errors = []; page.on('pageerror', (e) => errors.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 await page.route('https://cdn.jsdelivr.net/**', (r) => r.fulfill({ path: path.join(vendor, 'three.module.js'), contentType: 'text/javascript' }));
 await page.route('https://fonts.googleapis.com/**', (r) => r.fulfill({ contentType: 'text/css', body: `@font-face{font-family:'Press Start 2P';src:url(https://fonts.gstatic.com/ps2p.ttf)}@font-face{font-family:'VT323';src:url(https://fonts.gstatic.com/vt323.ttf)}` }));
