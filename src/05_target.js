@@ -796,7 +796,7 @@ void main(){
     const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : ['roof', 'street', 'awning'];
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : ['roof', 'roof', 'street', 'awning'];   // on a roof about half the time
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -945,7 +945,9 @@ void main(){
     for (const band of [first, [first[0] - 120, first[1] + 120], widest]) {
       for (const kind of order) {
         if (kind === 'roof') {
-          const pool = shuffled(City.roofs.filter((R) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y > 5 && R.y < 230));
+          let pool = shuffled(City.roofs.filter((R) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y > 5 && R.y < 230));
+          // mostly the taller roofs (30 m and up) first, so heights above the street vary
+          if (gameRand() < 0.75) pool = pool.filter((R) => R.y >= 30).concat(pool.filter((R) => R.y < 30));
           for (let a = 0; a < Math.min(pool.length, 90); a++) if (tryRoofHidden(pool[a], stage)) return true;
         } else if (kind === 'car') { const cands = carSpots(band); for (let a = 0; a < Math.min(cands.length, 80); a++) if (tryCar(cands[a])) return true; }
         else if (kind === 'highway') { for (let a = 0; a < 12; a++) if (tryHighway(band)) return true; }

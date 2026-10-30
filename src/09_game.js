@@ -164,8 +164,10 @@ function newStage() {
   if (!G.demo) Sfx.stageStart && Sfx.stageStart();
   return info;
 }
+// ?stage=N in the link starts a new game at stage N (handy for trying the fire mission: ?stage=5)
+const START_STAGE = Math.max(1, Math.min(99, parseInt(QS.get('stage') || '1', 10) || 1));
 function startGame() {
-  G.score = 0; G.scoreShown = 0; G.stage = 1; G.rounds = G.maxRounds = 5; Sfx.coin();
+  G.score = 0; G.scoreShown = 0; G.stage = START_STAGE; G.rounds = G.maxRounds = 5; Sfx.coin();
   newStage();
 }
 // Laser rangefinder with ~3.5 mrad beam divergence: the man counts as a return whenever he is inside the
