@@ -235,7 +235,7 @@ function fire() {
   FX.muzzle(origin.clone().addScaledVector(dir, 1.4), dir);
   Sfx.shot(); G.flash = 0.9; Aim.recoilV = 0.9;
   G.stick.set(0, 0); G.nearMisses = 0; G.nearCool = 0; G.shake = 0; G.passedT = -1; G.locked = false;
-  camK.init = false; PLAN.ok = false; PLAN.tried = false; G.braked = false; G.tLock = false; G.stampT = 0; G.stampText = 'GUIDANCE ACTIVE'; G.ricoT = 0; G.pathReset = true; G.recede = 0; G.aimSpent = false; RP.u = 0; G.losK = 0;
+  camK.init = false; PLAN.ok = false; PLAN.tried = false; G.braked = false; G.tLock = false; G.tLockOff = 0; G.stampT = 0; G.stampText = 'GUIDANCE ACTIVE'; G.ricoT = 0; G.pathReset = true; G.recede = 0; G.aimSpent = false; RP.u = 0; G.losK = 0;
   setState('shot');
 }
 function scoreHit(ev) {
@@ -441,7 +441,7 @@ function aimUpdate(rdt, input) {
     }
   }
   const tgo = Bullet.S.p.distanceTo(c) / Math.max(20, Bullet.S.v.length());
-  G.aimLead.copy(c).addScaledVector(G.tgtVel, Math.min(1.5, tgo));
+  if (!Target.predict(Math.min(1.5, tgo), G.aimLead)) G.aimLead.copy(c).addScaledVector(G.tgtVel, Math.min(1.5, tgo));
   if (!G.aimLock && Target.S.alive) {
     const B = Bullet.S, sees = clearLine(B.p, c, 0.3, true);
     if (!G.aimSpent && aimReached(B.p, B.v, G.aimP)) { if (sees) G.aimLock = true; else G.aimSpent = true; }
@@ -1126,7 +1126,9 @@ function tick(rdt) {
       }
       const botOn = !!(window.__X && window.__X.bot);
       if (G.auto || G.demo) autoMarker();
-      else if (POINT) { if (Input.tap && !botOn) touchMarker(Input.tap); aimUpdate(rdt, !botOn); if (botOn) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
+      // once the terminal lock has the target the round flies itself in: drags and taps are ignored until the
+      // lock lets go, so a hand on the controls can't pull it off and loop it round the target
+      else if (POINT) { const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
       // last-ditch terminal lock: close in, roughly pointed at him, with an open line to him (glass counts as
@@ -1139,16 +1141,22 @@ function tick(rdt) {
           const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1;
           // the helicopter: twice the reach, so the round can lock on behind it and follow it round a corner
           const hk = Target.S.type === 'heli' ? 2 : 1;
-          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 30 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 20 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
           const sees = dd < reach * 2.5 && clearLine(Bs.p, c, 0.15, true);
-          if (!G.tLock && dd < reach && Math.acos(clamp(TL1.dot(TL2), -1, 1)) < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
-          // once locked it holds on while it can see the target, even if a moving target opens the gap for a moment
-          if (G.tLock && !sees) G.tLock = false;
+          const off = Math.acos(clamp(TL1.dot(TL2), -1, 1));
+          G.tLockOff = Math.max(0, (G.tLockOff || 0) - rdt);
+          if (!G.tLock && !G.tLockOff && dd < reach && off < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
+          // once locked it holds on while it can see the target, even if a moving target opens the gap for a moment;
+          // if the round has gone past it (the target well off to the side or behind), the lock lets go rather
+          // than haul the round round in a loop, and the controls are the player's again
+          if (G.tLock && (!sees || off > 80 * DEG)) { G.tLock = false; if (sees) G.tLockOff = 1.0; }
           if (G.tLock) {
             // aim where the target will be when the round gets there (time to go from the closing speed)
-            const closing = Math.max(8, TL1.dot(Bs.v) - TL1.dot(G.tgtVel));
-            Bs.assistK = 1.6; TL1.copy(c).addScaledVector(G.tgtVel, Math.min(1.2, dd / closing)); pointSteerAt(Bs.p, Bs.v, G.stick, TL1);
+            const closing = Math.max(8, TL1.dot(Bs.v) - TL1.dot(G.tgtVel)), tg = Math.min(1.2, dd / closing);
+            if (!Target.predict(tg, TL1)) TL1.copy(c).addScaledVector(G.tgtVel, tg);
+            Bs.assistK = 1.6; pointSteerAt(Bs.p, Bs.v, G.stick, TL1);
+            G.aimLock = true; G.aimArmed = true;   // the marker sits on the target while the round flies itself in
           }
           else Bs.assistK = 1;
         } else Bs.assistK = 1;

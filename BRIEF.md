@@ -52,11 +52,20 @@ Measured with the human-like bot (tools/bots/stages.js, 3 seeds × 10 shots), th
 5. **Lock and catch-up.** Terminal lock on it has twice the usual reach and a wider cone, and the round has a proximity fuze against it (a burst within 1.5 m counts). Once locked, the round aims where the helicopter will be (time to go from the closing speed) and holds the lock while it can see it. Close in, the round keeps to at least 1.5 times the target's speed plus 12 m/s (`settleSpeed` in `06_bullet.js`). With a bot that steers straight at the helicopter once it can see it, about 80% of shots hit, and every shot that got the lock hit.
 6. **Escape.** Once it is 1,900 m out it has escaped: TARGET ESCAPED, no bonus, on to the next stage (game over on stage 30).
 
+## Terminal lock
+
+Close to the target, with an open line to it and the round pointed roughly at it, the round's seeker takes over (`TERMINAL LOCK`) and steers itself in with extra fin authority.
+
+1. **Reach and cone.** They shrink with the stage. Moving targets get a little more, the helicopter twice the reach, touch 2.2 times the reach.
+2. **Lead.** It aims where the target will be when the round arrives, using time to go from the closing speed. A drone's bob and sway are predicted exactly (`Target.predict`); leading a drone along its present velocity overshot every turn of the bob and looped the round round it.
+3. **Hands off.** While the lock holds, drags and taps are ignored and the marker sits on the target, so a hand on the controls can't pull the round off.
+4. **Hold and release.** The lock holds while the round can see the target. If the round has gone past (the target more than 80° off its nose), the lock lets go and stays off for a second, so the round never circles back in a loop.
+
 ## Touch assists (phones and tablets)
 
 A finger cannot make the fine last-moment corrections a mouse can, so on touch:
 
-1. The terminal lock reaches 2.2 times as far and its cone is 30° wider.
+1. The terminal lock reaches 2.2 times as far and its cone is 20° wider.
 2. The last 90 m of the flight run up to a third slower, giving more time to react as the round goes round the target.
 3. The marker snaps onto the target from 2.5 times as far, and a tap on the target locks it.
 4. The marker moves less per finger travel as the round closes in.
@@ -122,6 +131,7 @@ The modules in `src/` are concatenated in name order into one `<script type="mod
    5. `spawns.js` – spawn success, heights and distances per spot kind.
    6. `touch.js` – stages 3 to 7 with a desktop-like bot and a coarser, slower touch-like bot.
    7. `heli_chase.js` – helicopter shots traced through the terminal lock (`__CHASE=1` steers straight at it once it is in sight).
+   8. `drones.js` – drone shots with a bot that taps to lock as soon as it can see the drone, and one that keeps steering by hand close in; counts loops and locks held with the drone behind the round (`__TOUCH=1` for touch).
    Headless runs use SwiftShader. Use `sim()` (no rendering) for bots. A run of 30 shots takes a few minutes.
 5. **Test hooks on `window.__X`:** `startAt(stage)`, `sim(sec)`, `advance(sec)`, `spawnKind(kind)`, `aimAt(v)`, `aimAtTarget()`, `fire()`, `planHidden()`, `RP` (route), `flyable(slack)`, `routeFollow`, `setAim`, `bot` (per-frame callback), `look(p, t, fov)` (free camera), `setState`, plus the modules (`G`, `City`, `Target`, `Bullet`, `Mortar`, `Hud`, `Input`, …). `Mortar.M.force = '<set-up>'` forces a fire mission set-up.
 

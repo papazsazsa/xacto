@@ -2145,6 +2145,17 @@ void main(){
     }
     return false;
   }
+  // where the target will be t seconds from now, for the aim lead. A drone's bob and sway are known exactly
+  // (aiming ahead along its present velocity would overshoot every turn of the bob); anything else returns
+  // false and the caller leads it along its velocity.
+  function predict(t, out) {
+    if (!S.alive || S.type !== 'quad') return false;
+    const M = RIG.move, lx = -RIG.az, lz = RIG.ax, o = RIG.o;
+    if (M) { const ph = M.ph + t * TAU / QUAD_T, ps = M.ps + t * TAU / QUAD_ST, sw = QUAD_S * Math.sin(ps); out.set(o.x + lx * sw, M.h0 + M.A * Math.sin(ph), o.z + lz * sw); }
+    else { const ps = RIG.ps + t * TAU / 6, sw = 2.5 * Math.sin(ps); out.set(o.x + lx * sw, RIG.h0 + Math.sin((RIG.t + t) * TAU / 4), o.z + lz * sw); }
+    out.y += RIG.cy;
+    return true;
+  }
   function hide() { group.visible = false; S.alive = false; }
   function centroid(out) {
     if (S.type !== 'man') { const Q = rigJoints(); out.set(0, 0, 0); for (const p of Q) out.add(p); return out.multiplyScalar(1 / Q.length); }
@@ -2157,5 +2168,5 @@ void main(){
     respawn(stage = 1, beh, variant) { return spawn(stage, { beh, variant }); },
     bones, A, LV,
   };
-  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, quadMesh, debug };
+  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, quadMesh, predict, debug };
 })();
