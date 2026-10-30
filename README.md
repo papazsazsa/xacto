@@ -6,7 +6,9 @@ An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-s
 
 ## Play
 
-https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV – one page for every device. On a phone or tablet it switches to touch controls by itself and renders at a lower resolution to save battery.
+Public link (anyone can play): https://papazsazsa.github.io/xacto/
+
+claude.ai link: https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV – one page for every device. On a phone or tablet it switches to touch controls by itself and renders at a lower resolution to save battery.
 
 Touch controls: drag to aim, tap FIRE to shoot. In flight, drag to move the marker, or tap the target to lock the round onto him. The II button opens pause, sensor mode and sound.
 

@@ -21,4 +21,5 @@ console.log('web page dist/xacto_web.html, mobile page dist/xacto_mobile.html');
 // the public page on GitHub Pages (served from /docs on main): the full standalone build
 fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
 fs.copyFileSync(full, path.join(root, 'docs', 'index.html'));
+fs.writeFileSync(path.join(root, 'docs', '.nojekyll'), '');   // serve the page as is (no Jekyll pass)
 console.log('GitHub Pages page docs/index.html');
