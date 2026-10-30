@@ -3534,7 +3534,8 @@ void main(){
   // Spot types come out of a shuffled bag (no type twice in a row); cars and quadcopters join from stage 3.
   let bag = [], lastKind = '';
   function hiddenKind(stage) {
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'car', 'quad'];
+    if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'car', 'quad', 'highway'];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -3678,7 +3679,7 @@ void main(){
   }
   function spawnHidden(stage, opts) {
     S.stage = stage;
-    const want = ['roof', 'street', 'awning', 'car', 'quad'].includes(opts.kind) ? opts.kind : hiddenKind(stage), order = [want, ...['street', 'awning', 'roof'].filter((k) => k !== want)];
+    const want = ['roof', 'street', 'awning', 'car', 'quad', 'highway'].includes(opts.kind) ? opts.kind : hiddenKind(stage), order = [want, ...['street', 'awning', 'roof'].filter((k) => k !== want)];
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
     for (const band of [first, [first[0] - 120, first[1] + 120], widest]) {
       for (const kind of order) {
@@ -3686,6 +3687,7 @@ void main(){
           const pool = shuffled(City.roofs.filter((R) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y > 5 && R.y < 230));
           for (let a = 0; a < Math.min(pool.length, 90); a++) if (tryRoofHidden(pool[a], stage)) return true;
         } else if (kind === 'car') { const cands = carSpots(band); for (let a = 0; a < Math.min(cands.length, 80); a++) if (tryCar(cands[a])) return true; }
+        else if (kind === 'highway') { for (let a = 0; a < 12; a++) if (tryHighway(band)) return true; }
         else if (kind === 'quad') { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 120); a++) if (tryQuad(cands[a])) return true; }
         else { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 160); a++) if (tryStreet(cands[a], kind, stage)) return true; }
         if (opts.kind) break;   // a requested kind: no substitutes
@@ -4372,8 +4374,13 @@ void main(){
       const [x0, z0] = C[i], [x1, z1] = C[(i + 1) % 4], L = Math.hypot(x1 - x0, z1 - z0);
       if (rayLen(x0, 0.9, z0, x1 - x0, z1 - z0, L) < L - 0.5) return null;
     }
-    // rounded corners (radius 7 m), then arc length along the loop
-    const pts = [], rr = 7;
+    return loopPath(C, 7, CAR_V);
+  }
+  // a closed lap through four corners (rounded with radius rr), started from the nearest point to the car and
+  // heading the way it faces
+  function loopPath(C, rr, vmax) {
+    const c = RIG.c;
+    const pts = [];
     for (let i = 0; i < 4; i++) {
       const P = C[i], A0 = C[(i + 3) % 4], B0 = C[(i + 1) % 4];
       const li = Math.hypot(P[0] - A0[0], P[1] - A0[1]), lo = Math.hypot(B0[0] - P[0], B0[1] - P[1]);
@@ -4381,7 +4388,7 @@ void main(){
       for (let k = 0; k <= 6; k++) { const t = k / 6, u1 = 1 - t; pts.push([u1 * u1 * a[0] + 2 * u1 * t * P[0] + t * t * b[0], u1 * u1 * a[1] + 2 * u1 * t * P[1] + t * t * b[1]]); }
     }
     const cum = [0]; for (let i = 1; i <= pts.length; i++) { const p = pts[i % pts.length], q = pts[i - 1]; cum.push(cum[i - 1] + Math.hypot(p[0] - q[0], p[1] - q[1])); }
-    const M = { type: 'loop', pts, cum, L: cum[pts.length], s: 0, dir: 1, v: 0, off: V3(), blend: 0 };
+    const M = { type: 'loop', pts, cum, L: cum[pts.length], s: 0, dir: 1, v: 0, off: V3(), blend: 0, vmax };
     // start from the nearest point of the loop, heading the way the car faces
     let best = 1e9;
     for (let i = 0; i < pts.length; i++) {
@@ -4419,7 +4426,7 @@ void main(){
     }
     if (!M || M.type === 'still') return;
     if (M.type === 'loop') {
-      M.v = Math.min(CAR_V, M.v + 2 * dt); M.s += M.dir * M.v * dt; M.blend = Math.min(1, M.blend + M.v * dt / 12);
+      M.v = Math.min(M.vmax, M.v + 2 * dt); M.s += M.dir * M.v * dt; M.blend = Math.min(1, M.blend + M.v * dt / 12);
       loopAt(M, M.s, cvA, cvB); if (M.dir < 0) cvB.negate();
       RIG.c.set(cvA.x + M.off.x * (1 - M.blend), 0, cvA.z + M.off.z * (1 - M.blend));
       const yt = Math.atan2(cvB.x, cvB.z); let dy = yt - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
@@ -4527,6 +4534,19 @@ void main(){
     if (S.alive || !RIG.deb.length) { rigPts.push(chest); return rigPts; }
     RIG.deb.forEach((d, i) => { if (!d.tyre && (RIG.kind === 'car' || i < 3)) rigPts.push(d.p); });
     return rigPts;
+  }
+  // ---- highway technical: out in the open on the main avenue the shooter looks down, cruising slowly up one
+  // side and back down the other (a long lap with U-turns at the ends). A straight shot if you lead it.
+  function tryHighway(band) {
+    const eye = PLAYER.eye, lane = 7, span = grnd(160, 220), d = grnd(240, 380);   // the whole lap stays about 250 to 600 m out
+    const zNear = eye.z - d, zFar = zNear - span;
+    for (const x of [lane, -lane]) if (rayLen(x, 0.9, zNear, 0, -1, span) < span - 0.5) return nope('hwLane');
+    const out = gameRand() < 0.5, x = out ? lane : -lane, z = zNear - span * grnd(0.15, 0.85);
+    rigSpawn('car', x, 0, z, out ? Math.PI : 0);
+    RIG.move = loopPath([[lane, zNear], [lane, zFar], [-lane, zFar], [-lane, zNear]], lane, 4.5);
+    S.spot = { kind: 'highway', gate: gateFor(x, 0.9, z) || new THREE.Vector3(x, 40, z + 60), glass: [] };
+    refreshSpot();
+    return true;
   }
   // ---- quadcopter spot: hovering over the middle of a street, out of the shooter's sight at every height it
   // will bob through, with room round it and a clear run in along the street at its height
@@ -6550,10 +6570,11 @@ function scoreHit(ev) {
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
   { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
   if (Target.S.wary > 0) G.tallyRows.push(['ALERTED TARGET', 500]);
+  if (Target.S.type !== 'man' && G.tgtVel.length() > 1) G.tallyRows.push(['MOVING TARGET', 400]);
   if (Target.S.char === 'pack') G.tallyRows.push(['BACKPACK BLAST', 800]);
   if (G.nearMisses > 0) G.tallyRows.push([`CLOSE CALLS X${G.nearMisses}`, 150 * G.nearMisses]);
   G.tallyRows.push([`STAGE ${G.stage} BONUS`, 250 * G.stage]);

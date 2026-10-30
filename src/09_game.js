@@ -223,10 +223,11 @@ function scoreHit(ev) {
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
   { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
   if (Target.S.wary > 0) G.tallyRows.push(['ALERTED TARGET', 500]);
+  if (Target.S.type !== 'man' && G.tgtVel.length() > 1) G.tallyRows.push(['MOVING TARGET', 400]);
   if (Target.S.char === 'pack') G.tallyRows.push(['BACKPACK BLAST', 800]);
   if (G.nearMisses > 0) G.tallyRows.push([`CLOSE CALLS X${G.nearMisses}`, 150 * G.nearMisses]);
   G.tallyRows.push([`STAGE ${G.stage} BONUS`, 250 * G.stage]);
