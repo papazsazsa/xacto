@@ -3629,16 +3629,28 @@ void main(){
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
     // up high (roof, tower, ledge) about three times in five
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage <= 3 ? ['roof', 'roof', 'street', 'awning'] : ['roof', 'tower', 'ledge', 'street', 'awning'];
+    const p = pressure(stage), kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage <= 3 ? ['roof', 'roof', 'street', 'awning']
+      : ['roof', 'ledge', 'street', 'awning', ...(p < 0.6 ? ['tower'] : []), ...(p >= 0.3 ? ['ledge', 'awning'] : []), ...(p >= 0.6 ? ['street'] : [])];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
   }
   // distance: anywhere from ~250 m out to the stage's longest, now and then a very long shot
+  // The late-game squeeze: nothing through stage 7, then rising steadily to full at stage 20. It lengthens the
+  // shots and tightens the spots (more ledges and awnings, deeper and lower awnings, narrower ledges, roofs
+  // walled in close); the round itself never changes, and every spot still has to pass the flight check.
+  const pressure = (stage) => clamp((stage - 7) / 13, 0, 1);
+  let tightNeed = 0;   // walls wanted round a roof or street spot (of 12 directions, within 25 m)
   function hiddenBand(stage) {
-    const s = Math.max(1, stage) - 1, max = Math.min(950, 450 + 70 * s);
-    if (stage >= 2 && gameRand() < 0.15) return [Math.max(260, max - 40), Math.min(1150, max + 220)];
-    const c = grnd(260, max); return [Math.max(230, c - 80), c + 80];
+    const s = Math.max(1, stage) - 1, p = pressure(stage), max = Math.min(950, 450 + 70 * s) + 250 * p;
+    if (stage >= 2 && gameRand() < 0.15 + 0.25 * p) return [Math.max(260, max - 40), Math.min(1150 + 150 * p, max + 220)];
+    const c = grnd(Math.min(max - 20, 260 + 220 * p), max); return [Math.max(230, c - 80), c + 80];
+  }
+  // how walled in a spot is: of 12 level directions at head height plus a bit, how many hit something within 25 m
+  function walledIn(x, y, z) {
+    let n = 0;
+    for (let i = 0; i < 12; i++) { const a = i * TAU / 12; if (rayLen(x, y, z, Math.cos(a), Math.sin(a), 25) < 25) n++; }
+    return n;
   }
   const inSector = (x, z, band) => { const eye = PLAYER.eye, d = Math.hypot(x - eye.x, z - eye.z); return d > band[0] && d < band[1] && Math.abs(Math.atan2(x - eye.x, -(z - eye.z))) < 26 * DEG; };
   const shuffled = (out) => { for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; } return out; };
@@ -3727,16 +3739,17 @@ void main(){
     if (rayLen(c.x, 1.6, c.z, c.nx, c.nz, 30) < 16) return nope('hsAcross');
     const runA = rayLen(ax, 1.6, az, -c.ax, -c.az, 80), runB = rayLen(bx, 1.6, bz, c.ax, c.az, 80);
     if (Math.max(runA, runB) < 40) return nope('hsRun');
+    if (tightNeed && walledIn(c.x, 3, c.z) < tightNeed) return nope('hsOpen');
     const y0 = 0;
     const gate = gateFor(c.x, 1.3, c.z); if (!gate) return nope('hsGate');
     let awning = null;
     if (kind === 'awning') {
       // a deep cantilevered awning off the wall, its lip low enough that nothing drops in on him from above
-      const depth = grnd(5.0, 5.6), ext = 2.6;
+      const p = pressure(stage), depth = grnd(5.0, 5.6) + 1.2 * p, ext = 2.6;   // deeper and lower late on
       let x0, x1, z0, z1;
       if (c.ax) { x0 = Math.min(ax, bx) - ext; x1 = Math.max(ax, bx) + ext; const zo = c.wall + c.nz * depth; z0 = Math.min(c.wall, zo); z1 = Math.max(c.wall, zo); }
       else { z0 = Math.min(az, bz) - ext; z1 = Math.max(az, bz) + ext; const xo = c.wall + c.nx * depth; x0 = Math.min(c.wall, xo); x1 = Math.max(c.wall, xo); }
-      const yS = grnd(5.0, 5.5);
+      const yS = grnd(5.0, 5.5) - 0.9 * p;
       awning = [[x0, yS, z0, x1, yS + 0.32, z1, 3, grnd()]];
       // the outer lip (fascia): a deeper band along the street edge
       const lipW = 0.3;
@@ -3764,6 +3777,7 @@ void main(){
       if (!pathFree(R, ax, az, bx, bz, 1.4, 0.9)) continue;
       if (!hiddenAt(x, R.y, z) || !hiddenAt(ax, R.y, az) || !hiddenAt(bx, R.y, bz)) { nope('hrVisible'); continue; }
       if (!skyOpen(x, R.y + 2.4, z) || !skyOpen(ax, R.y + 2.4, az) || !skyOpen(bx, R.y + 2.4, bz)) { nope('hrSky'); continue; }
+      if (tightNeed && walledIn(x, R.y + 3, z) < tightNeed) { nope('hrOpen'); continue; }
       const gate = gateFor(x, R.y + 1.3, z); if (!gate) { nope('hrGate'); continue; }
       place(R, gameRand() < 0.7 ? 'patrol' : 'phone', ax, az, bx, bz, a, {});
       S.spot = { kind, gate, awning: null };
@@ -3772,7 +3786,7 @@ void main(){
     return false;
   }
   function spawnHidden(stage, opts) {
-    S.stage = stage;
+    S.stage = stage; tightNeed = 0;
     let want = ['roof', 'street', 'awning', 'car', 'quad', 'highway', 'tower', 'ledge', 'heli'].includes(opts.kind) ? opts.kind : hiddenKind(stage);
     if (want === 'heli') { if (spawnHeli()) return true; if (opts.kind) return false; want = 'tower'; }
     // up high: the asked-for spot, then the other high one, then the usual mix
@@ -3783,7 +3797,10 @@ void main(){
     }
     const base = want === 'tower' || want === 'ledge' ? 'roof' : want, order = [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
-    for (const band of [first, [first[0] - 120, first[1] + 120], widest]) {
+    const bands = [first, [first[0] - 120, first[1] + 120], widest];
+    for (let bi = 0; bi < bands.length; bi++) {
+      const band = bands[bi];
+      tightNeed = bi === 0 ? Math.round(7 * pressure(stage)) : 0;   // walled-in spots first, late on
       for (const kind of order) {
         if (kind === 'roof') {
           let pool = shuffled(City.roofs.filter((R) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y > 5 && R.y < 230));
@@ -3797,6 +3814,7 @@ void main(){
         if (opts.kind) break;   // a requested kind: no substitutes
       }
     }
+    tightNeed = 0;
     return false;
   }
   // ---- way up high. The top deck of one of the tallest towers in view (taller first), or a setback terrace
@@ -3852,7 +3870,7 @@ void main(){
     const strips = shuffled([[L.x0, L.z0, o[0], L.z1, 0, 1], [o[2], L.z0, L.x1, L.z1, 0, 1], [L.x0, L.z0, L.x1, o[1], 1, 0], [L.x0, o[3], L.x1, L.z1, 1, 0]]);
     for (const [x0, z0, x1, z1, ax, az] of strips) {
       const across = ax ? z1 - z0 : x1 - x0, along = ax ? x1 - x0 : z1 - z0;
-      if (across < 2.9 || along < 12) continue;
+      if (across < lerp(4.0, 2.9, pressure(stage)) || along < 12) continue;   // narrower ledges late on
       for (let k = 0; k < 4; k++) {
         const x = ax ? grnd(x0 + 5, x1 - 5) : (x0 + x1) / 2, z = ax ? (z0 + z1) / 2 : grnd(z0 + 5, z1 - 5);
         if (!freeOnRoof(L, x, z, 1.2, 0.9)) continue;
@@ -4519,6 +4537,15 @@ void main(){
     }
     return g;
   }
+  // a quadcopter (shared geometry and materials) for the fire mission's drone nest
+  function quadMesh() {
+    const g = new THREE.Group();
+    for (const m of quadMeshes) {
+      const c = new THREE.Mesh(m.geometry, m.material); c.position.copy(m.userData.home); c.rotation.set(m.userData.rx, m.userData.ry, 0); c.frustumCulled = false;
+      c.userData = { r: m.userData.r }; g.add(c);
+    }
+    return g;
+  }
   function rigReset() {
     RIG.kind = ''; RIG.move = null; RIG.deb.length = 0; RIG.restT = 0;
     for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG], [heliMeshes, heliG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(m.userData.rx, m.userData.ry, 0); }
@@ -4629,14 +4656,14 @@ void main(){
   const gridOK = (j, k) => Math.abs(j) <= GRID.nAve - 1 && k >= 1 && k <= GRID.nSt - 1;
   const gnode = (j, k) => ({ x: j * GRID.aveSp, z: -k * GRID.stSp, j, k });
   // the next crossing after b (coming from a): straight on, left or right, never back
-  // (it weaves: after a block or two straight on it wants to turn)
-  function nextNode(a, b, straight = 0) {
+  // (it weaves: after a block or two straight on it wants to turn; it never doubles back or revisits a crossing)
+  function nextNode(a, b, straight = 0, seen = null) {
     const dj = Math.sign(b.j - a.j), dk = Math.sign(b.k - a.k);
     let best = null, bs = -1e9;
     for (const [ej, ek] of [[dj, dk], [dk, -dj], [-dk, dj]]) {
       const j = b.j + ej, k = b.k + ek; if (!gridOK(j, k) || Math.abs(j) > 5) continue;
       const on = ej === dj && ek === dk;
-      const sc = gameRand() * 1.4 + (ek > 0 ? 0.6 : ek < 0 ? -1.6 : 0) + (j === 0 ? -0.9 : 0) + (on ? (straight >= 1 ? -1.2 : 0.2) : 0);
+      const sc = gameRand() * 1.4 + (ek > 0 ? 0.6 : ek < 0 ? -1.6 : 0) + (j === 0 ? -0.9 : 0) + (on ? (straight >= 1 ? -1.2 : 0.2) : 0) + (seen && seen.has(j * 100 + k) ? -4 : 0);
       if (sc > bs) { bs = sc; best = gnode(j, k); }
     }
     return best || gnode(b.j, Math.min(GRID.nSt - 1, b.k + 1));
@@ -4649,12 +4676,17 @@ void main(){
       const n = gnode(j, k), d = Math.hypot(n.x - c.x, n.z - c.z) + (n.z > c.z ? 120 : 0) + (j === 0 ? 80 : 0);
       if (d < bs) { bs = d; n1 = n; }
     }
-    const n2 = nextNode({ j: n1.j, k: n1.k - 1 }, n1);
-    return { type: 'heli', ph: 'spool', t: 0, v: 0, vy: 0, y0: c.y, n0: null, n1, n2, altT: c.y };
+    const seen = new Set([n1.j * 100 + n1.k]), n0 = { j: n1.j, k: n1.k - 1 }, n2 = nextNode(n0, n1, 0, seen);
+    seen.add(n2.j * 100 + n2.k);
+    return { type: 'heli', ph: 'spool', t: 0, v: 0, vy: 0, y0: c.y, a: null, n0, n1, n2, seen, straight: 0, altT: c.y };
   }
   const _hb = V3();
   // height of whatever is under the point (x, z) below y (street 0)
   function under(x, y, z) { return City.raycast(_hb.set(x, y, z), _dn, y + 1) ? y - City.hit.t : 0; }
+  // It follows its route with a carrot a little way ahead on the street centre lines, so it rounds each corner
+  // inside the crossing and never circles a point it overshot. It turns no faster than 1 rad/s and slows for
+  // the corners: the round, closing on it, can always turn tighter than it can.
+  const HELI_YAWR = 1.0, HELI_LOOK = 22;
   function heliMove(dt) {
     const M = RIG.move, c = RIG.c;
     if (!M) { RIG.rpm = 0.5; RIG.rot += dt * TAU * RIG.rpm; return; }
@@ -4662,32 +4694,42 @@ void main(){
     let vT = 0, yawT = RIG.yaw;
     if (M.ph === 'spool') { RIG.rpm = lerp(0.5, 4, sstep(0, 1.2, M.t)); M.altT = M.y0; if (M.t > 1.2) { M.ph = 'lift'; M.t = 0; } }
     else {
-      if (M.ph === 'lift') { M.altT = M.y0 + 9; if (c.y > M.y0 + 6) { M.ph = 'go'; M.t = 0; } }
-      // steer for the next crossing; close to it, start the turn toward the one after
-      const d1 = Math.hypot(M.n1.x - c.x, M.n1.z - c.z);
-      if (d1 < 14) {
-        const on = M.n0 && (M.n2.j - M.n1.j) === (M.n1.j - M.n0.j) && (M.n2.k - M.n1.k) === (M.n1.k - M.n0.k);
-        M.straight = on ? (M.straight || 0) + 1 : 0;
-        M.n0 = M.n1; M.n1 = M.n2; M.n2 = nextNode(M.n0, M.n1, M.straight);
-      }
-      const turn = M.n0 && ((M.n2.j - M.n1.j) * (M.n1.k - M.n0.k) !== (M.n2.k - M.n1.k) * (M.n1.j - M.n0.j));
-      const k = sstep(45, 15, d1), px = lerp(M.n1.x, M.n2.x, k * 0.5), pz = lerp(M.n1.z, M.n2.z, k * 0.5);
-      yawT = Math.atan2(px - c.x, pz - c.z);
-      if (M.ph === 'go') {
+      if (M.ph === 'lift') { M.altT = M.y0 + 9; if (c.y > M.y0 + 6) { M.ph = 'go'; M.t = 0; M.a = { x: c.x, z: c.z }; } }
+      if (M.a) {
+        // past the end of this leg (or right on its crossing): on to the next
+        let ex = M.n1.x - M.a.x, ez = M.n1.z - M.a.z, L2 = ex * ex + ez * ez || 1;
+        let t = ((c.x - M.a.x) * ex + (c.z - M.a.z) * ez) / L2;
+        if (t >= 1 || Math.hypot(M.n1.x - c.x, M.n1.z - c.z) < 6) {
+          const on = (M.n2.j - M.n1.j) === (M.n1.j - M.n0.j) && (M.n2.k - M.n1.k) === (M.n1.k - M.n0.k);
+          M.straight = on ? M.straight + 1 : 0;
+          M.a = { x: M.n1.x, z: M.n1.z }; M.n0 = M.n1; M.n1 = M.n2; M.n2 = nextNode(M.n0, M.n1, M.straight, M.seen); M.seen.add(M.n2.j * 100 + M.n2.k);
+          ex = M.n1.x - M.a.x; ez = M.n1.z - M.a.z; L2 = ex * ex + ez * ez || 1; t = ((c.x - M.a.x) * ex + (c.z - M.a.z) * ez) / L2;
+        }
+        // the carrot: HELI_LOOK metres on from where it is along this leg, round the corner onto the next
+        const L = Math.sqrt(L2), left = (1 - clamp(t, 0, 1)) * L;
+        let px, pz;
+        if (left > HELI_LOOK) { const u = clamp(t, 0, 1) + HELI_LOOK / L; px = M.a.x + ex * u; pz = M.a.z + ez * u; }
+        else { const fx = M.n2.x - M.n1.x, fz = M.n2.z - M.n1.z, fl = Math.hypot(fx, fz) || 1, r = HELI_LOOK - left; px = M.n1.x + fx / fl * r; pz = M.n1.z + fz / fl * r; }
+        yawT = Math.atan2(px - c.x, pz - c.z);
+        const turnAhead = left < 55 && ((M.n2.j - M.n1.j) !== (M.n1.j - M.n0.j) || (M.n2.k - M.n1.k) !== (M.n1.k - M.n0.k));
+        let err = yawT - RIG.yaw; err = Math.abs(Math.atan2(Math.sin(err), Math.cos(err)));
         const st = Math.max(0, (S.stage || 10) - 10);   // quicker every ten stages: about 27, 31 and 35 m/s
-        vT = (turn && d1 < 60 ? HELI_VT : HELI_V) + st * (turn && d1 < 60 ? 0.2 : 0.4);
+        vT = M.ph === 'go' ? (turnAhead || err > 0.35 ? HELI_VT + 0.2 * st : HELI_V + 0.4 * st) : 4;
         // height: low in the canyon, but always well over whatever is below and whatever is ahead
-        const fx = Math.sin(RIG.yaw), fz = Math.cos(RIG.yaw);
-        let floor = 0;
-        for (const a of [0, 15, 30, 45]) floor = Math.max(floor, under(c.x + fx * a, c.y + 30, c.z + fz * a));
-        _hdir.set(fx, 0, fz);
-        for (const oy of [-1.5, 1.5, 4]) if (City.raycast(_hs.set(c.x, c.y + oy, c.z), _hdir, 55) && City.hit.id >= 0) floor = Math.max(floor, City.boxes[City.hit.id].y1 - 4);
-        M.altT = Math.max(HELI_CRUISE + 4 * Math.sin(M.t * 0.7), floor + 9);
+        if (M.ph === 'go') {
+          const fx = Math.sin(RIG.yaw), fz = Math.cos(RIG.yaw);
+          let floor = 0, wall = 0;
+          for (const a of [0, 15, 30, 45]) floor = Math.max(floor, under(c.x + fx * a, c.y + 30, c.z + fz * a));
+          _hdir.set(fx, 0, fz);
+          for (const oy of [-1.5, 1.5, 4]) if (City.raycast(_hs.set(c.x, c.y + oy, c.z), _hdir, 55) && City.hit.id >= 0) wall = Math.max(wall, City.boxes[City.hit.id].y1);
+          M.altT = Math.max(HELI_CRUISE + 4 * Math.sin(M.t * 0.7), floor + 9, wall + 5);
+          if (wall && c.y < wall + 3) vT = Math.min(vT, 5);   // something tall right ahead: all but stop and climb over it
+        }
       }
     }
-    M.v = M.v < vT ? Math.min(vT, M.v + HELI_ACC * dt) : Math.max(vT, M.v - 6 * dt);
+    M.v = M.v < vT ? Math.min(vT, M.v + HELI_ACC * dt) : Math.max(vT, M.v - 7 * dt);
     let dy = yawT - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    const rate = clamp(dy * 2.5, -1.4, 1.4); RIG.yaw += rate * dt;
+    const rate = clamp(dy * 2.5, -HELI_YAWR, HELI_YAWR); RIG.yaw += rate * dt;
     M.vy = damp(M.vy, clamp((M.altT - c.y) * 1.2, -11, 12), 3, dt);
     RIG.vel.set(Math.sin(RIG.yaw) * M.v, M.vy, Math.cos(RIG.yaw) * M.v);
     c.addScaledVector(RIG.vel, dt);
@@ -4938,7 +4980,7 @@ void main(){
     respawn(stage = 1, beh, variant) { return spawn(stage, { beh, variant }); },
     bones, A, LV,
   };
-  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, debug };
+  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, quadMesh, debug };
 })();
 
 // ==== 06_bullet.js ====
@@ -6593,7 +6635,7 @@ const Hud = (() => {
       if (r > 0.05) {
         panel(W / 2 - pw / 2, y - ph / 2, pw, ph, 'FIRE MISSION', { scrim: 0.95, col: BR, tab: BR });
         typeT('FIRE MISSION', W / 2, y - 58 * u, 32, r);
-        typeTokens(`THREE TARGETS ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
+        typeTokens(`${Mortar.label()}   ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
         typeTokens(touch ? 'TAP EACH TARGET TO LOCK IT' : 'CROSSHAIRS ON EACH TARGET AND CLICK TO LOCK', W / 2, y + 22 * u, 28, (r - 0.8) * 2, 'center', FB, BR);
         typeTokens(touch ? 'THEN TAP TO FIRE THE MORTAR' : 'THEN CLICK TO FIRE THE MORTAR', W / 2, y + 50 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
       }
@@ -6824,10 +6866,16 @@ const Hud = (() => {
 
 // ==== 08_mortar.js ====
 // ---------------------------------------------------------------------------
-// Fire mission: a reward stage every fifth stage (FIRE_MISSION in 00_core.js switches it off). Three technicals
-// at a checkpoint on the main avenue. Lock each one (tap it, or put the crosshairs on it and click); the mortar
-// bomb drops down the tube with a thunk; fire, and the camera rides the bomb up its arc. At the top the nose
-// splits into three cones that dive straight down onto the three trucks.
+// Fire mission: a reward stage on stages 5, 15, 25 (FIRE_MISSION in 00_core.js switches it off). Three targets,
+// a different set-up each time from a shuffled rotation (?mission=<name> in the link picks one):
+//   checkpoint – three technicals parked at a checkpoint on the main avenue
+//   convoy     – three technicals driving in a column up and down the main avenue
+//   nest       – three quadcopters hovering over a rooftop
+//   motorpool  – three technicals in a side street, out of sight behind the buildings (indirect fire)
+//   garage     – three technicals parked on the roof deck of a parking structure
+// Lock each one (tap it, or put the crosshairs on it and click); the mortar bomb drops down the tube with a
+// thunk; fire, and the camera rides the bomb up its arc. At the top the nose splits into three cones that dive
+// onto the three targets (and follow them if they move).
 // Everything for the fire mission lives here; the game, HUD and sound hooks are marked "fire mission".
 // ---------------------------------------------------------------------------
 const Mortar = (() => {
@@ -6855,7 +6903,7 @@ const Mortar = (() => {
   for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * TAU / 3; bombCones.push(part(coneGeo, mCone, Math.cos(a) * 0.042, Math.sin(a) * 0.042, 0.43)); }
   bomb.scale.setScalar(2.4); bomb.visible = false; group.add(bomb);   // drawn large so it reads in the chase view
 
-  // ---- the three trucks at a checkpoint on the main avenue
+  // ---- the three targets
   function clear() {
     for (const tr of M.trucks) group.remove(tr.g);
     for (const d of M.deb) group.remove(d.m);
@@ -6863,39 +6911,150 @@ const Mortar = (() => {
     M.trucks = []; M.locks = []; M.cones = []; M.deb = []; M.phase = ''; M.done = false; M.on = false;
     bomb.visible = false; for (const c of bombCones) c.visible = true; group.visible = false;
   }
-  const footClear = (x, z) => {
+  const footClear = (x, z, y = 0) => {
     let ok = true;
-    City.forBoxesNear(x, z, 5, (b) => { if (ok && !b.dead && b.x0 < x + 2.8 && b.x1 > x - 2.8 && b.z0 < z + 2.8 && b.z1 > z - 2.8 && b.y0 < 2.2 && b.y1 > 0.1) ok = false; });
+    City.forBoxesNear(x, z, 5, (b) => { if (ok && !b.dead && b.x0 < x + 2.8 && b.x1 > x - 2.8 && b.z0 < z + 2.8 && b.z1 > z - 2.8 && b.y0 < y + 2.2 && b.y1 > y + 0.1) ok = false; });
     return ok;
   };
-  const skyClear = (x, z) => !City.raycast(T1.set(x, 2.3, z), UPV, 140);
+  const skyClear = (x, z, y = 0) => !City.raycast(T1.set(x, y + 2.3, z), UPV, 140);
+  const seen = (x, y, z) => { T2.set(x, y, z).sub(PLAYER.eye); const L = T2.length(); T2.multiplyScalar(1 / L); return !City.raycast(PLAYER.eye, T2, L - 0.6); };
+  const inBand = (R, lo, hi) => { const cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2, dx = cx - PLAYER.eye.x, dz = cz - PLAYER.eye.z, d = Math.hypot(dx, dz); return d > lo && d < hi && Math.abs(Math.atan2(dx, -dz)) < 22 * DEG; };
+  const onRoof = (R, x, z, m, om) => x > R.x0 + m && x < R.x1 - m && z > R.z0 + m && z < R.z1 - m && R.occ.every((o) => x < o[0] - om || x > o[2] + om || z < o[1] - om || z > o[3] + om);
+  const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const QSC = 1.6;   // the nest's drones are drawn half again as big so they read at range
+  function addTruck(x, y, z, yaw) {
+    const g = Target.truckMesh(); g.position.set(x, y, z); g.rotation.set(0, yaw, 0); g.updateMatrixWorld(true); group.add(g);
+    M.trucks.push({ kind: 'car', g, p: new THREE.Vector3(x, y, z), yaw, alive: true, box: [0.92, 0.1, 2.05, 2.45], aimY: 1.0, sc: 1 });
+  }
+  function addQuad(x, y, z) {
+    const g = Target.quadMesh(), yaw = grnd(0, TAU); g.scale.setScalar(QSC); g.position.set(x, y, z); g.rotation.set(0, yaw, 0); g.updateMatrixWorld(true); group.add(g);
+    M.trucks.push({ kind: 'quad', g, p: new THREE.Vector3(x, y, z), yaw, alive: true, box: [0.85 * QSC, -0.4 * QSC, 0.4 * QSC, 0.85 * QSC], aimY: 0, sc: QSC, h0: y, ph: grnd(0, TAU) });
+  }
+  const PLACE = {
+    // three technicals at a checkpoint where a cross street meets the main avenue
+    checkpoint() {
+      const eye = PLAYER.eye;
+      for (let a = 0; a < 60; a++) {
+        const k = 3 + Math.floor(grnd(0, 3.99)), zc = -k * GRID.stSp + grnd(-8, 8), d = eye.z - zc;
+        if (d < 280 || d > 520) continue;
+        const cx = grnd(-3, 3), j = () => grnd(-1.5, 1.5);
+        const lay = [[cx - 7 + j(), zc + 8 + j(), grnd(-0.5, 0.5)], [cx + 6 + j(), zc + j(), Math.PI / 2 + grnd(-0.4, 0.4)], [cx - 2 + j(), zc - 10 + j(), grnd(2.6, 3.6)]];
+        if (lay.every(([x, z]) => Math.abs(x) < GRID.mainHW - 2.6 && footClear(x, z) && skyClear(x, z))) { lay.forEach(([x, z, yaw]) => addTruck(x, 0, z, yaw)); return true; }
+      }
+      const zc = -4 * GRID.stSp; [[-7, zc + 8, 0], [6, zc, Math.PI / 2], [-2, zc - 10, 3]].forEach(([x, z, yaw]) => addTruck(x, 0, z, yaw));
+      return true;
+    },
+    // a column of three driving laps of the main avenue: away up the right-hand lane, a U-turn, back down the left
+    convoy() {
+      const eye = PLAYER.eye, lane = 7;
+      for (let a = 0; a < 24; a++) {
+        const d = grnd(270, 380), span = grnd(140, 190), zN = eye.z - d, zF = zN - span;
+        if ([lane, -lane].some((x) => City.raycast(T1.set(x, 1.0, zN + 2), T2.set(0, 0, -1), span + 4))) continue;
+        let open = 0, n = 0;
+        for (let z = zN; z > zF; z -= 10) for (const x of [lane, -lane]) { n++; if (skyClear(x, z)) open++; }
+        if (open < n * (a < 14 ? 0.95 : 0.7)) continue;
+        M.loop = { lane, zN, zF, span, L: 2 * span + TAU * lane };
+        const s0 = grnd(0, M.loop.L);
+        for (let i = 0; i < 3; i++) { const s = s0 - i * 14; loopPos(s, T3); addTruck(T3.x, 0, T3.z, T3.y); const tr = M.trucks[i]; tr.s = s; tr.v = 6; }
+        return true;
+      }
+      return false;
+    },
+    // three drones hovering in a triangle over a rooftop (below the shooter's eye, so he sees them)
+    nest() {
+      const pool = shuffle(City.roofs.filter((R) => !R.garage && R.y >= 12 && R.y <= 60 && R.x1 - R.x0 >= 18 && R.z1 - R.z0 >= 18 && inBand(R, 280, 560)));
+      for (const R of pool.slice(0, 40)) for (let k = 0; k < 4; k++) {
+        const cx = grnd(R.x0 + 6, R.x1 - 6), cz = grnd(R.z0 + 6, R.z1 - 6), a0 = grnd(0, TAU), rr = grnd(5, 7), y = R.y + grnd(3.4, 4.4);
+        const pts = [0, 1, 2].map((i) => [cx + Math.cos(a0 + i * TAU / 3) * rr, cz + Math.sin(a0 + i * TAU / 3) * rr]);
+        if (!pts.every(([x, z]) => onRoof(R, x, z, 2.2, 1.6) && skyClear(x, z, y) && seen(x, y, z))) continue;
+        pts.forEach(([x, z]) => addQuad(x, y + grnd(-0.4, 0.4), z));
+        return true;
+      }
+      return false;
+    },
+    // three technicals parked nose to tail in a cross street off the avenue, hidden behind the buildings
+    motorpool() {
+      const eye = PLAYER.eye;
+      for (let a = 0; a < 90; a++) {
+        const k = 3 + Math.floor(grnd(0, 3.99)), zc = -k * GRID.stSp, sd = grnd() < 0.5 ? -1 : 1;
+        const x0 = sd * grnd(GRID.mainHW + 30, GRID.aveSp - GRID.aveHW - 30), d = Math.hypot(x0 - eye.x, zc - eye.z);
+        if (d < 280 || d > 560) continue;
+        const lay = [-1, 0, 1].map((i) => [x0 + i * 10.5 + grnd(-1, 1), zc + (i === 0 ? 1.6 : -1.6) + grnd(-0.6, 0.6), (gameRand() < 0.5 ? 1 : -1) * Math.PI / 2 + grnd(-0.25, 0.25)]);
+        if (!lay.every(([x, z]) => footClear(x, z) && skyClear(x, z))) continue;
+        if (a < 60 && lay.filter(([x, z]) => !seen(x, 1.5, z)).length < 2) continue;   // out of sight, mostly
+        lay.forEach(([x, z, yaw]) => addTruck(x, 0, z, yaw));
+        return true;
+      }
+      return false;
+    },
+    // three technicals side by side on a parking structure's roof deck
+    garage() {
+      const pool = shuffle(City.roofs.filter((R) => R.garage && inBand(R, 230, 650)));
+      for (const R of pool) for (let k = 0; k < 10; k++) {
+        const yaw = Math.floor(grnd(0, 3.99)) * Math.PI / 2 + grnd(-0.15, 0.15), sx = Math.cos(yaw), sz = -Math.sin(yaw);   // side by side along the truck's right
+        const cx = grnd(R.x0 + 7, R.x1 - 7), cz = grnd(R.z0 + 7, R.z1 - 7);
+        const lay = [-1, 0, 1].map((i) => [cx + sx * i * 3.4, cz + sz * i * 3.4]);
+        if (!lay.every(([x, z]) => onRoof(R, x, z, 3, 1.4) && footClear(x, z, R.y) && skyClear(x, z, R.y))) continue;
+        lay.forEach(([x, z]) => addTruck(x, R.y, z, yaw + grnd(-0.1, 0.1)));
+        return true;
+      }
+      return false;
+    },
+  };
+  // the convoy's lap: right-hand lane away from the shooter, a U-turn, the left-hand lane back, a U-turn
+  // (out: x, z and the heading as a yaw in .y)
+  function loopPos(s, out) {
+    const P = M.loop, l = P.lane, h = Math.PI * l; s = ((s % P.L) + P.L) % P.L;
+    if (s < P.span) return out.set(l, Math.PI, P.zN - s);
+    s -= P.span; if (s < h) { const t = s / l; return out.set(l * Math.cos(t), Math.PI + t, P.zF - l * Math.sin(t)); }
+    s -= h; if (s < P.span) return out.set(-l, 0, P.zF + s);
+    s -= P.span; const t = s / l; return out.set(-l * Math.cos(t), t, P.zN + l * Math.sin(t));
+  }
+  const NAMES = ['checkpoint', 'convoy', 'nest', 'motorpool', 'garage'];
+  const LABEL = { checkpoint: 'CHECKPOINT', convoy: 'CONVOY', nest: 'DRONE NEST', motorpool: 'MOTOR POOL', garage: 'PARKING DECK' };
+  const TALLY = { checkpoint: 'CHECKPOINT DESTROYED', convoy: 'CONVOY DESTROYED', nest: 'DRONES DOWN 3', motorpool: 'MOTOR POOL DESTROYED', garage: 'PARKING DECK CLEARED' };
+  let rota = [];
   function setup() {
-    clear(); M.on = true; group.visible = true;
-    const eye = PLAYER.eye;
-    let spots = null;
-    for (let a = 0; a < 60 && !spots; a++) {
-      const k = 3 + Math.floor(grnd(0, 3.99)), zc = -k * GRID.stSp + grnd(-8, 8), d = eye.z - zc;
-      if (d < 280 || d > 520) continue;
-      const cx = grnd(-3, 3), j = () => grnd(-1.5, 1.5);
-      const lay = [[cx - 7 + j(), zc + 8 + j(), grnd(-0.5, 0.5)], [cx + 6 + j(), zc + j(), Math.PI / 2 + grnd(-0.4, 0.4)], [cx - 2 + j(), zc - 10 + j(), grnd(2.6, 3.6)]];
-      if (lay.every(([x, z]) => Math.abs(x) < GRID.mainHW - 2.6 && footClear(x, z) && skyClear(x, z))) spots = lay;
+    clear(); M.on = true; group.visible = true; M.loop = null;
+    const asked = M.force || QS.get('mission');   // (M.force: test hook)
+    if (!rota.length) rota = shuffle(NAMES.slice());
+    const want = NAMES.includes(asked) ? asked : rota.pop();
+    M.variant = 'checkpoint';
+    for (const v of [want, ...shuffle(NAMES.filter((n) => n !== want && n !== 'checkpoint')), 'checkpoint']) {
+      M.trucks.length = 0;
+      if (PLACE[v]()) { M.variant = v; break; }
+      for (const tr of M.trucks) group.remove(tr.g);
     }
-    if (!spots) { const zc = -4 * GRID.stSp; spots = [[-7, zc + 8, 0], [6, zc, Math.PI / 2], [-2, zc - 10, 3]]; }
+    centre();
+  }
+  function centre() {
     M.center.set(0, 0, 0);
-    for (const [x, z, yaw] of spots) {
-      const g = Target.truckMesh(); g.position.set(x, 0, z); g.rotation.set(0, yaw, 0); g.updateMatrixWorld(true); group.add(g);
-      M.trucks.push({ g, p: new THREE.Vector3(x, 0, z), yaw, alive: true });
-      M.center.x += x / 3; M.center.z += z / 3;
+    for (const tr of M.trucks) M.center.addScaledVector(tr.p, 1 / M.trucks.length);
+    M.center.y += 1;
+  }
+  // the convoy drives on and the drones hover, from the moment the stage starts
+  function moveUnits(dt) {
+    let moved = false;
+    for (const tr of M.trucks) {
+      if (!tr.alive) continue;
+      if (tr.kind === 'quad') {
+        tr.ph += dt; tr.p.y = tr.h0 + 0.45 * Math.sin(tr.ph * 1.3); tr.yaw += dt * 0.25;
+        tr.g.position.copy(tr.p); tr.g.rotation.set(0.05 * Math.sin(tr.ph * 0.9), tr.yaw, 0.05 * Math.sin(tr.ph * 1.1), 'YXZ'); tr.g.updateMatrixWorld(true);
+      } else if (M.loop) {
+        tr.s += tr.v * dt; loopPos(tr.s, T3);
+        let dy = T3.y - tr.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); tr.yaw += dy * (1 - Math.exp(-6 * dt));
+        tr.p.set(T3.x, tr.p.y, T3.z); tr.g.position.copy(tr.p); tr.g.rotation.set(0, tr.yaw, 0); tr.g.updateMatrixWorld(true); moved = true;
+      }
     }
-    M.center.y = 1;
+    if (moved) centre();
   }
   // ---- locking: on screen (fractions, y down) each truck's box; a tap or the crosshairs picks the nearest
   function screen(cam) {
     cam.getWorldDirection(T3);
     M.trucks.forEach((tr, i) => {
       const s = SC[i]; let x0 = 9, x1 = -9, y0 = 9, y1 = -9, ok = tr.alive;
-      const f = T1.set(Math.sin(tr.yaw), 0, Math.cos(tr.yaw)), r = T2.set(Math.cos(tr.yaw), 0, -Math.sin(tr.yaw));
-      for (const lx of [-0.92, 0.92]) for (const y of [0.1, 2.05]) for (const lz of [-2.45, 2.45]) {
+      const f = T1.set(Math.sin(tr.yaw), 0, Math.cos(tr.yaw)), r = T2.set(Math.cos(tr.yaw), 0, -Math.sin(tr.yaw)), B = tr.box;
+      for (const lx of [-B[0], B[0]]) for (const y of [tr.p.y + B[1], tr.p.y + B[2]]) for (const lz of [-B[3], B[3]]) {
         if (!ok) break;
         ndcV.set(tr.p.x + r.x * lx + f.x * lz, y, tr.p.z + r.z * lx + f.z * lz);
         if (T4.copy(ndcV).sub(cam.position).dot(T3) <= 0.5) { ok = false; break; }
@@ -6952,7 +7111,7 @@ const Mortar = (() => {
     M.locks.forEach((ti, k) => {
       const src = bombCones[k], m = new THREE.Mesh(coneGeo, mCone); m.scale.setScalar(4); m.frustumCulled = false; group.add(m);   // drawn large so they read on the dive
       const P0 = src.getWorldPosition(new THREE.Vector3()), tr = M.trucks[ti];
-      const P3 = tr.p.clone(); P3.y = 1.0;
+      const P3 = tr.p.clone(); P3.y += tr.aimY;
       const P1 = P0.clone().addScaledVector(dirH, 35).addScaledVector(side, (k - 1) * 14);
       const P2 = P3.clone(); P2.y += 95;
       M.cones.push({ m, P0, P1, P2, P3, ti, t: 0, D: 3.0 + 0.3 * k, hit: false, p: P0.clone() });
@@ -6963,6 +7122,7 @@ const Mortar = (() => {
   }
   function update(dt, blast) {
     if (!M.on) return;
+    moveUnits(dt);
     M.t += dt;
     if (M.phase === 'up') {
       bombAt(Math.min(M.t, M.ta));
@@ -6979,6 +7139,7 @@ const Mortar = (() => {
       for (const c of M.cones) {
         if (c.hit) continue;
         c.t += dt; const u = Math.min(1, c.t / c.D), e = Math.pow(u, 1.5);
+        { const tr = M.trucks[c.ti]; c.P3.copy(tr.p); c.P3.y += tr.aimY; c.P2.copy(c.P3); c.P2.y += 95; }   // it follows a moving target
         bez(c, e, c.p); c.m.position.copy(c.p);
         bezD(c, Math.max(e, 0.001), T1).normalize(); c.m.quaternion.setFromUnitVectors(ZAX, T1);
         if (Math.random() < 0.5) FX.spawn(c.p.x, c.p.y, c.p.z, 0, 0, 0, 0.5, 0.25, 1.0, 0.5, 1, 0.4, 0);
@@ -7000,20 +7161,21 @@ const Mortar = (() => {
   // ---- a truck blows apart (the same breakup as the single technical: panels fly, a tyre bounces away)
   function explode(tr, blast) {
     if (!tr.alive) return; tr.alive = false;
-    const c = tr.p.clone(); c.y = 1.0;
+    const c = tr.p.clone(); c.y += tr.aimY;
     if (blast) blast(c, 2);
     tr.g.updateMatrixWorld(true);
     const kids = tr.g.children.slice(), tyres = kids.filter((m) => m.userData.tyre), kick = tyres[Math.floor(Math.random() * tyres.length)];
     for (const m of kids) {
       const p = m.getWorldPosition(new THREE.Vector3()), q = m.getWorldQuaternion(new THREE.Quaternion());
-      group.add(m); m.position.copy(p); m.quaternion.copy(q); m.scale.set(1, 1, 1);
+      group.add(m); m.position.copy(p); m.quaternion.copy(q); m.scale.setScalar(tr.sc || 1);
       T1.subVectors(p, tr.p); T1.y = 0; if (T1.lengthSq() < 1e-4) T1.set(grnd(-1, 1), 0, grnd(-1, 1)); T1.normalize();
+      const r0 = (m.userData.r || 0.1) * (tr.sc || 1);
       const v = T1.clone().multiplyScalar(grnd(3, 9)); v.y = grnd(6, 14);
       if (m.userData.high) v.y += 6;
       if (m.userData.low) { v.multiplyScalar(0.2); v.y = grnd(2, 3); }
       if (m === kick) { v.copy(T1).multiplyScalar(grnd(9, 12)); v.y = grnd(7, 9); }
       const w = new THREE.Vector3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(grnd(4, 12));
-      M.deb.push({ m, p, q, v, w, r: m.userData.r || 0.1, tyre: !!m.userData.tyre, e: m.userData.tyre ? 0.62 : 0.28, rest: false, still: 0, ground: false, roll: 0 });
+      M.deb.push({ m, p, q, v, w, r: r0, tyre: !!m.userData.tyre, e: m.userData.tyre ? 0.62 : 0.28, rest: false, still: 0, ground: false, roll: 0 });
     }
     group.remove(tr.g);
   }
@@ -7080,7 +7242,7 @@ const Mortar = (() => {
       if (since < 1.3) rate = 5; else rigid = !c.hit;
     } else {
       orbit += rdt * 0.12;
-      want.set(M.center.x + Math.sin(orbit) * 42, 26, M.center.z + 40 * Math.cos(orbit));
+      want.set(M.center.x + Math.sin(orbit) * 42, M.center.y + 25, M.center.z + 40 * Math.cos(orbit));
       look.copy(M.center);
     }
     // keep the camera out of buildings
@@ -7100,6 +7262,7 @@ const Mortar = (() => {
   return {
     group, M, SC, clear, setup, screen, aim, fire, update, camera, begin,
     ts, done: () => M.done, center: () => M.center, dist: () => M.center.distanceTo(PLAYER.eye),
+    label: () => LABEL[M.variant] || 'FIRE MISSION', tally: () => TALLY[M.variant] || 'TARGETS DESTROYED 3',
   };
 })();
 
@@ -7253,8 +7416,7 @@ function newStage() {
   // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
   G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage % 10 !== 0;   // (stages 10, 20, 30 are the helicopter)
   Mortar.clear();
-  if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
-  planHidden();
+  if (G.mission) { Target.hide(); Mortar.setup(); planHidden(); } else spawnChecked();
   // start looking roughly down the avenue, toward the target's side
   const tc = G.mission ? Mortar.center() : Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
@@ -7269,6 +7431,23 @@ function newStage() {
   Sfx.windLevel && Sfx.windLevel(G.wind.length());
   if (!G.demo) Sfx.stageStart && Sfx.stageStart();
   return info;
+}
+// the stage's target, flight-checked: a hidden target whose route a round with this stage's limits cannot fly
+// is replaced (the same kind of spot again, then anything). Early stages demand a wide margin; by stage 20
+// the route may need nearly everything the round has. Past stage 7 a route that is too easy (flyable with only
+// a small share of the round's pull and budget) is passed over too: the late game is all tight spots.
+function spawnChecked() {
+  const p = clamp((G.stage - 7) / 13, 0, 1), slack = lerp(0.65, 1, p), easy = 0.6 * p;
+  let kind = null;
+  for (let k = 0; k < 8; k++) {
+    Target.spawn(G.stage, kind && k < 5 ? { kind } : {});
+    planHidden();
+    const sp = Target.S.spot;
+    if (!sp || sp.kind === 'highway' || sp.kind === 'heli' || G.demo) return;   // in the open, or the helicopter
+    if (!kind) kind = sp.kind;
+    if (routeFlyable(slack) && (easy < 0.1 || k === 7 || !routeFlyable(easy))) return;
+    G.respawns = (G.respawns || 0) + 1;
+  }
 }
 // ?stage=N in the link starts a new game at stage N (handy for trying the fire mission: ?stage=5)
 const START_STAGE = Math.max(1, Math.min(99, parseInt(QS.get('stage') || '1', 10) || 1));
@@ -8187,7 +8366,7 @@ function tick(rdt) {
       Mortar.update(gdt, (c, k) => packBlast(k, c));
       Mortar.camera(rdt, camera);
       if (Mortar.done()) {
-        G.tallyRows = [['TARGETS DESTROYED 3', 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
+        G.tallyRows = [[Mortar.tally(), 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
         G.tallyStep = 0.45; G.score += G.tallyRows.reduce((a, r) => a + r[1], 0);
         setState('tally'); G.tallyTick = 0;
       }
@@ -8353,6 +8532,7 @@ function tick(rdt) {
   // world simulation (slow motion aware)
   tgtPrev.copy(Target.chest);
   Target.update(gdt);
+  if (G.mission && G.state !== 'mflight') Mortar.update(gdt, (c, k) => packBlast(k, c));   // the convoy drives, the drones hover
   if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, Target.S.type === 'heli' ? 30 : 8);
   else if (!Target.S.alive) G.tgtVel.set(0, 0, 0);
   City.updateTraffic(gdt);

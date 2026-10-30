@@ -730,7 +730,7 @@ const Hud = (() => {
       if (r > 0.05) {
         panel(W / 2 - pw / 2, y - ph / 2, pw, ph, 'FIRE MISSION', { scrim: 0.95, col: BR, tab: BR });
         typeT('FIRE MISSION', W / 2, y - 58 * u, 32, r);
-        typeTokens(`THREE TARGETS ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
+        typeTokens(`${Mortar.label()}   ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
         typeTokens(touch ? 'TAP EACH TARGET TO LOCK IT' : 'CROSSHAIRS ON EACH TARGET AND CLICK TO LOCK', W / 2, y + 22 * u, 28, (r - 0.8) * 2, 'center', FB, BR);
         typeTokens(touch ? 'THEN TAP TO FIRE THE MORTAR' : 'THEN CLICK TO FIRE THE MORTAR', W / 2, y + 50 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
       }

@@ -147,8 +147,7 @@ function newStage() {
   // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
   G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage % 10 !== 0;   // (stages 10, 20, 30 are the helicopter)
   Mortar.clear();
-  if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
-  planHidden();
+  if (G.mission) { Target.hide(); Mortar.setup(); planHidden(); } else spawnChecked();
   // start looking roughly down the avenue, toward the target's side
   const tc = G.mission ? Mortar.center() : Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
@@ -163,6 +162,23 @@ function newStage() {
   Sfx.windLevel && Sfx.windLevel(G.wind.length());
   if (!G.demo) Sfx.stageStart && Sfx.stageStart();
   return info;
+}
+// the stage's target, flight-checked: a hidden target whose route a round with this stage's limits cannot fly
+// is replaced (the same kind of spot again, then anything). Early stages demand a wide margin; by stage 20
+// the route may need nearly everything the round has. Past stage 7 a route that is too easy (flyable with only
+// a small share of the round's pull and budget) is passed over too: the late game is all tight spots.
+function spawnChecked() {
+  const p = clamp((G.stage - 7) / 13, 0, 1), slack = lerp(0.65, 1, p), easy = 0.6 * p;
+  let kind = null;
+  for (let k = 0; k < 8; k++) {
+    Target.spawn(G.stage, kind && k < 5 ? { kind } : {});
+    planHidden();
+    const sp = Target.S.spot;
+    if (!sp || sp.kind === 'highway' || sp.kind === 'heli' || G.demo) return;   // in the open, or the helicopter
+    if (!kind) kind = sp.kind;
+    if (routeFlyable(slack) && (easy < 0.1 || k === 7 || !routeFlyable(easy))) return;
+    G.respawns = (G.respawns || 0) + 1;
+  }
 }
 // ?stage=N in the link starts a new game at stage N (handy for trying the fire mission: ?stage=5)
 const START_STAGE = Math.max(1, Math.min(99, parseInt(QS.get('stage') || '1', 10) || 1));
@@ -1081,7 +1097,7 @@ function tick(rdt) {
       Mortar.update(gdt, (c, k) => packBlast(k, c));
       Mortar.camera(rdt, camera);
       if (Mortar.done()) {
-        G.tallyRows = [['TARGETS DESTROYED 3', 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
+        G.tallyRows = [[Mortar.tally(), 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
         G.tallyStep = 0.45; G.score += G.tallyRows.reduce((a, r) => a + r[1], 0);
         setState('tally'); G.tallyTick = 0;
       }
@@ -1247,6 +1263,7 @@ function tick(rdt) {
   // world simulation (slow motion aware)
   tgtPrev.copy(Target.chest);
   Target.update(gdt);
+  if (G.mission && G.state !== 'mflight') Mortar.update(gdt, (c, k) => packBlast(k, c));   // the convoy drives, the drones hover
   if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, Target.S.type === 'heli' ? 30 : 8);
   else if (!Target.S.alive) G.tgtVel.set(0, 0, 0);
   City.updateTraffic(gdt);
