@@ -145,7 +145,7 @@ function newStage() {
   G.wind.set(Math.cos(th), 0, Math.sin(th)).multiplyScalar(G.diff.wind * grnd(0.75, 1.1));
   FX.wind.copy(G.wind).multiplyScalar(0.6);
   // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
-  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0;
+  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage !== 10;   // (stage 10 is the helicopter)
   Mortar.clear();
   if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
   planHidden();
@@ -228,12 +228,12 @@ function scoreHit(ev) {
   G.lastHit = { range, centre, part: ev.part };
   G.tallyRows = [
     [`RANGE ${Math.round(range)} M`, Math.round(range * 2)],
-    ev.part === 'car' ? ['TECHNICAL DESTROYED', 600] : ev.part === 'quad' ? ['DRONE DOWN', 600] : [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
+    ev.part === 'car' ? ['TECHNICAL DESTROYED', 600] : ev.part === 'quad' ? ['DRONE DOWN', 600] : ev.part === 'heli' ? ['HELICOPTER DOWN', 1000] : [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
     [`CONTROL RESERVE ${Math.round(ctrl * 100)}%`, Math.round(ctrl * 800)],
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : k === 'ledge' ? ['ON THE LEDGE', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : k === 'ledge' ? ['ON THE LEDGE', 1200] : k === 'heli' ? (Target.S.spot.air ? ['AIRBORNE', 1500] : ['ON THE PAD', 800]) : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
   { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
   { const agl = Math.round(Target.S.root.y); if (agl >= 75) G.tallyRows.push([`HIGH RISE ${agl} M`, agl * 5]); }
@@ -267,7 +267,7 @@ function onBulletEvent(ev) {
   if (G.hitDir.lengthSq() < 1e-6) G.hitDir.set(0, 0, -1); G.hitDir.normalize();
   camK.init = false;
   if (ev.type === 'hit') {
-    const car = Target.S.type === 'car', quad = Target.S.type === 'quad', blast = Target.S.type === 'man' && Target.S.char === 'pack';
+    const car = Target.S.type === 'car' || Target.S.type === 'heli', quad = Target.S.type === 'quad', blast = Target.S.type === 'man' && Target.S.char === 'pack';
     if (blast) packBlast(); else if (car) packBlast(2); else if (quad) packBlast(0.6);
     Target.launch(ev.point, G.hitDir, ev.part, blast ? 1.7 : 1);
     Sfx.hit(); G.flash = blast || car ? 1 : quad ? 0.6 : 0.35;
@@ -779,7 +779,7 @@ function setupKillView(second) {
     // pieces land
     const out = kcS.subVectors(spot.entry2, spot.entry); out.y = 0;
     const L = out.length() || 1; out.multiplyScalar(1 / L);
-    const sd = second ? -1 : 1, quad = spot.kind === 'quad', back = second ? 12 : 7;
+    const sd = second ? -1 : 1, quad = spot.kind === 'quad' || spot.kind === 'heli', back = second ? 12 : 7;
     const y = quad ? Math.max(4, spot.entry.y + (second ? 4 : 1.5)) : (second ? 7 : 4);
     KC.base.copy(spot.entry).addScaledVector(out, back - 3); KC.base.y = y;
     KC.base.x += -out.z * sd * 1.3; KC.base.z += out.x * sd * 1.3; KC.dir.copy(out); KC.fixed = true;
@@ -1015,10 +1015,16 @@ function tick(rdt) {
       updateAim(rdt);
       // fire mission: lock the three trucks, then the bomb goes down the tube
       if (G.mission) { if (Mortar.aim(fire_, Input.tap)) { Sfx.mortarLoad(); setState('mload'); } break; }
+      // the helicopter got away: the stage is lost (no kill, no refill) and the game moves on
+      if (Target.S.escaped && !G.demo) { setState('escaped'); Sfx.deny && Sfx.deny(); break; }
       if (G.demo && G.stateT > 1.6) { fire(); break; }
       if (fire_) { fire(); break; }
       break;
     }
+    case 'escaped':
+      updateAim(rdt);
+      if (G.stateT > 3.2 || (fire_ && G.stateT > 1.2)) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
+      break;
     case 'mload':   // fire mission: loaded; tap (or click, space) to fire
       updateAim(rdt);
       if (G.stateT > 2.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT...
@@ -1184,7 +1190,7 @@ function tick(rdt) {
   // world simulation (slow motion aware)
   tgtPrev.copy(Target.chest);
   Target.update(gdt);
-  if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, 8);
+  if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, Target.S.type === 'heli' ? 30 : 8);
   else if (!Target.S.alive) G.tgtVel.set(0, 0, 0);
   City.updateTraffic(gdt);
   FX.update(gdt, camera.position);
@@ -1279,7 +1285,7 @@ function demoAim(rdt) {
 function render() {
   // test hook: a free camera for looking at things up close (window.__X.look)
   if (G.dbgView) { const v = G.dbgView; camera.position.copy(v.p); camera.up.set(0, 1, 0); camera.lookAt(v.t); camera.fov = v.fov || 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
-  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload'].includes(G.state) ? 1 : 0;
+  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload', 'escaped'].includes(G.state) ? 1 : 0;
   G.scopeAmt = scopeOn;
   const d = Post.display.uniforms, s = Post.sensor.uniforms;
   d.uMode.value = G.mode; d.uScope.value = G.scopeAmt; d.uScopeR.value = G.scopeR; d.uFlash.value = G.flash * 0.6;

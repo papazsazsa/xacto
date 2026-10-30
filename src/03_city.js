@@ -253,7 +253,7 @@ const City = (() => {
       addB(cx - s / 2, y, cz - s / 2, cx + s / 2, y + 1.6, cz + s / 2, 9);
       for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; LP.push([cx + Math.cos(a) * s * 0.47, y + 1.8, cz + Math.sin(a) * s * 0.47, 0, 1, 0.5]); }
       occ.push([cx - s / 2, cz - s / 2, cx + s / 2, cz + s / 2]);
-      roofs.push({ x0, z0, x1, z1, y, h: y, occ });
+      roofs.push({ x0, z0, x1, z1, y, h: y, occ, heli: { x: cx, z: cz, y: y + 1.6, s } });
       return occ;
     }
     // stair / elevator bulkhead

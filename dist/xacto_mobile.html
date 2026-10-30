@@ -1473,7 +1473,7 @@ const City = (() => {
       addB(cx - s / 2, y, cz - s / 2, cx + s / 2, y + 1.6, cz + s / 2, 9);
       for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; LP.push([cx + Math.cos(a) * s * 0.47, y + 1.8, cz + Math.sin(a) * s * 0.47, 0, 1, 0.5]); }
       occ.push([cx - s / 2, cz - s / 2, cx + s / 2, cz + s / 2]);
-      roofs.push({ x0, z0, x1, z1, y, h: y, occ });
+      roofs.push({ x0, z0, x1, z1, y, h: y, occ, heli: { x: cx, z: cz, y: y + 1.6, s } });
       return occ;
     }
     // stair / elevator bulkhead
@@ -3613,6 +3613,7 @@ void main(){
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
     if (stage === 4) { lastKind = 'tower'; return 'tower'; }       // the fourth: way up on top of a tall tower
+    if (stage === 10) { lastKind = 'heli'; lastMachine = 10; return 'heli'; }   // the tenth: a helicopter on a helipad
     const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
@@ -3761,7 +3762,8 @@ void main(){
   }
   function spawnHidden(stage, opts) {
     S.stage = stage;
-    const want = ['roof', 'street', 'awning', 'car', 'quad', 'highway', 'tower', 'ledge'].includes(opts.kind) ? opts.kind : hiddenKind(stage);
+    let want = ['roof', 'street', 'awning', 'car', 'quad', 'highway', 'tower', 'ledge', 'heli'].includes(opts.kind) ? opts.kind : hiddenKind(stage);
+    if (want === 'heli') { if (spawnHeli()) return true; if (opts.kind) return false; want = 'tower'; }
     // up high: the asked-for spot, then the other high one, then the usual mix
     if (want === 'tower' || want === 'ledge') {
       if ((want === 'tower' ? spawnTower : spawnLedge)(stage)) return true;
@@ -3807,6 +3809,31 @@ void main(){
       for (let a = 0; a < Math.min(pool.length, 40); a++) if (tryLedge(pool[a], stage)) return true;
     }
     return false;
+  }
+  // ---- the helicopter (stage 10): on a tower's helipad in view; with none in view, on a helipad painted on a
+  // big tall roof. The rotor has room to turn and there is open sky above it.
+  function spawnHeli() {
+    for (const band of [[350, 950], [250, 1150]]) {
+      for (const R of shuffled(City.roofs.filter((R) => R.heli && centreIn(R, band)))) if (tryHeli(R, R.heli, false)) return true;
+    }
+    const pool = highFirst(City.roofs.filter((R) => !R.garage && !R.heli && R.y >= 55 && R.y <= 190 && R.x1 - R.x0 > 18 && R.z1 - R.z0 > 18 && centreIn(R, [300, 1000])));
+    for (const R of pool.slice(0, 24)) for (let k = 0; k < 6; k++) {
+      const s = 14, x = grnd(R.x0 + s / 2 + 1.5, R.x1 - s / 2 - 1.5), z = grnd(R.z0 + s / 2 + 1.5, R.z1 - s / 2 - 1.5);
+      if (!R.occ.every((o) => o[2] < x - s / 2 - 0.5 || o[0] > x + s / 2 + 0.5 || o[3] < z - s / 2 - 0.5 || o[1] > z + s / 2 + 0.5)) continue;
+      if (tryHeli(R, { x, z, y: R.y + 1.0, s }, true)) return true;
+    }
+    return false;
+  }
+  function tryHeli(R, pad, paint) {
+    const y = pad.y;
+    if (!boxFree([pad.x - 6.2, y + 0.2, pad.z - 6.2, pad.x + 6.2, y + 5, pad.z + 6.2], null)) return nope('hhBox');
+    if (City.raycast(_hs.set(pad.x, y + 5, pad.z), _up, 120)) return nope('hhSky');
+    const gate = gateFor(pad.x, y + 1.5, pad.z); if (!gate) return nope('hhGate');
+    if (paint) City.addCover([[pad.x - pad.s / 2, R.y, pad.z - pad.s / 2, pad.x + pad.s / 2, y, pad.z + pad.s / 2, 9]]);
+    rigSpawn('heli', pad.x, y, pad.z, grnd(0, TAU));
+    S.roof = R; S.spot = { kind: 'heli', gate, glass: [] };
+    refreshSpot();
+    return true;
   }
   // a terrace is the ring between the lower tier's edge and the next tier's wall: he walks along one strip of it
   function tryLedge(L, stage) {
@@ -4378,11 +4405,12 @@ void main(){
   // the street, and on a car one tyre goes bouncing away down the road.
   // ======================================================================
   const RIG = { kind: '', c: V3(), yaw: 0, f: V3(), r: V3(), lo: [0, 0, 0], hi: [0, 0, 0], cy: 0, meshes: null, g: null,
-    deb: [], restT: 0, thudT: 0, move: null, t: 0, h0: 0, ax: 0, az: 1, tilt: 0 };
+    deb: [], restT: 0, thudT: 0, move: null, t: 0, h0: 0, ax: 0, az: 1, tilt: 0, pitch: 0, roll: 0, vel: V3(), rpm: 0, rot: 0 };
   const CAR_L = 4.9, CAR_W = 1.84, CAR_H = 2.05, TYRE_R = 0.38, CAR_V = 4, QUAD_A = 6, QUAD_T = 3.6, QUAD_S = 4, QUAD_ST = 4.7;
   const rigMat = (t) => thermalMat(FS_SOLID, { uT: { value: t }, uStripe: { value: 0 } }, { side: THREE.DoubleSide });
   const carMat = [0.95, 0.62, 0.36, 0.78, 0.9, 0.55, 0.58].map(rigMat);   // engine, body, glass, tyres, gun, underbody, bed floor
   const quadMat = [0.97, 0.78, 0.88, 0.6].map(rigMat);   // motors, frame, battery, rotors
+  const heliMat = [0.95, 0.62, 0.36, 0.5, 0.55, 0.99].map(rigMat);   // engine, body, glass, rotor blades, skids, exhaust
   // parts (x to its right, y up, z forward): box size or cylinder [radius, height], centre, material
   // the technical: a Hilux-style pickup with an open bed, a roll bar and a heavy machine gun on a pedestal,
   // firing over the cab. Thermal read: engine and grille hottest, gun and tyres warm, body mid, glass dark.
@@ -4436,18 +4464,41 @@ void main(){
     QUAD_PARTS.push({ cyl: [0.07, 0.09], p: [0.46 * sx, 0.05, 0.46 * sz], m: 0 });                                                  // motor
     QUAD_PARTS.push({ cyl: [0.28, 0.012], p: [0.46 * sx, 0.11, 0.46 * sz], m: 3 });                                                 // rotor disc
   }
+  // the helicopter: a light utility type with a glazed nose, an engine hump with its exhaust (the hottest
+  // thing on it), a long tail boom, skids, a four-blade main rotor and a two-blade tail rotor.
+  // Materials: 0 engine, 1 body, 2 glass, 3 rotor blades, 4 skids, 5 exhaust. spin: 1 main rotor, 2 tail rotor
+  const HELI_PARTS = [
+    { s: [2.0, 1.9, 3.6], p: [0, 1.5, 0.3], m: 1 },                       // cabin
+    { s: [1.8, 1.25, 1.3], p: [0, 1.25, 2.7], m: 1 },                     // nose
+    { s: [1.6, 0.95, 0.9], p: [0, 1.55, 3.25], m: 2, rx: -0.35 },         // nose glazing
+    { s: [0.04, 0.75, 1.5], p: [-1.02, 1.75, 0.9], m: 2 },                // side windows
+    { s: [0.04, 0.75, 1.5], p: [1.02, 1.75, 0.9], m: 2 },
+    { s: [1.25, 0.7, 2.5], p: [0, 2.8, -0.3], m: 0, high: true },         // engine hump
+    { s: [0.55, 0.45, 0.7], p: [0, 2.75, -1.75], m: 5 },                  // exhaust
+    { s: [0.5, 0.55, 5.6], p: [0, 2.1, -4.3], m: 1 },                     // tail boom
+    { s: [0.12, 1.7, 0.95], p: [0, 2.95, -6.85], m: 1 },                  // tail fin
+    { s: [1.9, 0.08, 0.55], p: [0, 2.15, -6.2], m: 1 },                   // tail plane
+    { s: [0.12, 0.12, 4.2], p: [-1.08, 0.08, 0.4], m: 4, low: true },     // skids
+    { s: [0.12, 0.12, 4.2], p: [1.08, 0.08, 0.4], m: 4, low: true },
+    { s: [2.3, 0.1, 0.1], p: [0, 0.5, -0.7], m: 4 },                      // skid cross tubes
+    { s: [2.3, 0.1, 0.1], p: [0, 0.5, 1.5], m: 4 },
+    { cyl: [0.13, 0.55], p: [0, 3.4, 0], m: 0 },                          // rotor mast
+    { s: [0.38, 0.06, 11.2], p: [0, 3.72, 0], m: 3, spin: 1, fly: true }, // main rotor (two crossed blade pairs)
+    { s: [11.2, 0.06, 0.38], p: [0, 3.72, 0], m: 3, spin: 1, fly: true },
+    { s: [0.06, 1.6, 0.2], p: [0.2, 2.95, -6.95], m: 3, spin: 2, fly: true },   // tail rotor
+  ];
   const tyreGeo = new THREE.CylinderGeometry(TYRE_R, TYRE_R, 0.28, 12).rotateZ(Math.PI / 2);   // axle along x
   function rigMeshes(parts, mats) {
     return parts.map((q) => {
       const geo = q.tyre ? tyreGeo : q.cyl ? new THREE.CylinderGeometry(q.cyl[0], q.cyl[0], q.cyl[1], 12) : new THREE.BoxGeometry(q.s[0], q.s[1], q.s[2]);
       const m = new THREE.Mesh(geo, mats[q.tyre ? 3 : q.m]); m.frustumCulled = false;
       const r = q.tyre ? TYRE_R : q.cyl ? Math.max(0.05, q.cyl[1] / 2 + 0.03) : Math.min(q.s[0], q.s[1], q.s[2]) / 2 + 0.05;
-      m.userData = { home: new THREE.Vector3(q.p[0], q.p[1], q.p[2]), rx: q.rx || 0, ry: q.ry || 0, r, tyre: !!q.tyre, low: !!q.low, high: !!q.high };
+      m.userData = { home: new THREE.Vector3(q.p[0], q.p[1], q.p[2]), rx: q.rx || 0, ry: q.ry || 0, r, tyre: !!q.tyre, low: !!q.low, high: !!q.high, spin: q.spin || 0, fly: !!q.fly };
       return m;
     });
   }
-  const carG = new THREE.Group(), quadG = new THREE.Group(); carG.visible = quadG.visible = false; group.add(carG, quadG);
-  const carMeshes = rigMeshes(CAR_PARTS, carMat), quadMeshes = rigMeshes(QUAD_PARTS, quadMat);
+  const carG = new THREE.Group(), quadG = new THREE.Group(), heliG = new THREE.Group(); carG.visible = quadG.visible = heliG.visible = false; group.add(carG, quadG, heliG);
+  const carMeshes = rigMeshes(CAR_PARTS, carMat), quadMeshes = rigMeshes(QUAD_PARTS, quadMat), heliMeshes = rigMeshes(HELI_PARTS, heliMat);
   // a separate technical (shared geometry and materials) for the fire mission
   function truckMesh() {
     const g = new THREE.Group();
@@ -4459,19 +4510,24 @@ void main(){
   }
   function rigReset() {
     RIG.kind = ''; RIG.move = null; RIG.deb.length = 0; RIG.restT = 0;
-    for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(m.userData.rx, m.userData.ry, 0); }
-    carG.visible = quadG.visible = false; mesh.visible = true;
+    for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG], [heliMeshes, heliG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(m.userData.rx, m.userData.ry, 0); }
+    carG.visible = quadG.visible = heliG.visible = false; mesh.visible = true; S.escaped = false;
   }
   function rigAxes() { RIG.f.set(Math.sin(RIG.yaw), 0, Math.cos(RIG.yaw)); RIG.r.set(Math.cos(RIG.yaw), 0, -Math.sin(RIG.yaw)); }
   function rigSpawn(kind, x, y, z, yaw) {
     rigReset(); RIG.kind = kind; RIG.c.set(x, y, z); RIG.yaw = yaw; RIG.t = grnd(0, 10); RIG.h0 = y; RIG.tilt = 0; RIG.floor = 0; RIG.ps = 0; RIG.o = new THREE.Vector3(x, y, z); rigAxes();
+    RIG.pitch = RIG.roll = 0; RIG.vel.set(0, 0, 0); RIG.rpm = 0.5; RIG.rot = grnd(0, TAU);
     if (kind === 'car') { RIG.meshes = carMeshes; RIG.g = carG; RIG.lo = [-CAR_W / 2, 0.12, -CAR_L / 2]; RIG.hi = [CAR_W / 2, CAR_H, CAR_L / 2]; RIG.cy = 0.85; }
+    else if (kind === 'heli') { RIG.meshes = heliMeshes; RIG.g = heliG; RIG.lo = [-1.2, 0.1, -7.3]; RIG.hi = [1.2, 3.2, 3.8]; RIG.cy = 1.5; }   // fuselage and tail boom
     else { RIG.meshes = quadMeshes; RIG.g = quadG; RIG.lo = [-0.85, -0.4, -0.85]; RIG.hi = [0.85, 0.4, 0.85]; RIG.cy = 0; }   // a forgiving box round the quadcopter
     S.type = kind; S.char = kind; S.alive = true; S.ragdoll = false; S.settled = false; S.roof = null; S.packGone = false;
     RIG.g.visible = true; mesh.visible = false; group.visible = true; rigPose();
   }
   function rigPose() {
-    RIG.g.position.copy(RIG.c); RIG.g.rotation.set(RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 0.9) + RIG.tilt : 0, RIG.yaw, RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 1.3) : 0, 'YXZ');
+    if (RIG.kind === 'heli') {
+      RIG.g.position.copy(RIG.c); RIG.g.rotation.set(RIG.pitch, RIG.yaw, RIG.roll, 'YXZ');
+      for (const m of heliMeshes) if (m.userData.spin === 1) m.rotation.set(0, RIG.rot, 0); else if (m.userData.spin === 2) m.rotation.set(RIG.rot * 2.3, 0, 0);
+    } else RIG.g.position.copy(RIG.c), RIG.g.rotation.set(RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 0.9) + RIG.tilt : 0, RIG.yaw, RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 1.3) : 0, 'YXZ');
     RIG.g.updateMatrixWorld(true);
     chest.set(RIG.c.x, RIG.c.y + RIG.cy, RIG.c.z); headPos.copy(chest); S.root.copy(RIG.c);
     S.dist = chest.distanceTo(PLAYER.eye);
@@ -4503,6 +4559,7 @@ void main(){
   function rigAlert() {
     if (!RIG.kind || !S.alive || RIG.move) return;
     if (RIG.kind === 'quad') { RIG.move = { type: 'bob', A: Math.min(QUAD_A, RIG.h0 - (RIG.floor || 0) - 4.5), ph: 0, h0: RIG.h0, ps: RIG.ps || 0 }; return; }
+    if (RIG.kind === 'heli') { RIG.move = heliDeparture(); return; }
     RIG.move = carLoop() || carShuttle();
   }
   // the block beside the parked car: laps in the lanes just outside its kerbs, corners rounded
@@ -4553,6 +4610,48 @@ void main(){
     if (tan) tan.set(q[0] - p[0], 0, q[1] - p[1]).normalize();
     return out;
   }
+  // ---- the helicopter: it idles on its pad with the rotor turning slowly. Missed once, it spools up, lifts
+  // off, turns away from the shooter and flies off, speeding up and climbing, until it is out of range: then it
+  // has escaped. It looks ahead as it goes: anything in the way, it climbs harder and turns a little.
+  const HELI_V = 18, HELI_VK = 0.45, HELI_VMAX = 38, HELI_ACC = 2, HELI_CLIMB = 4.5, HELI_TOP = 245, HELI_ESC = 1900, HELI_WEAVE = 0.4, HELI_WT = 6.5;
+  function heliDeparture() {
+    const c = RIG.c, eye = PLAYER.eye, a0 = Math.atan2(c.x - eye.x, c.z - eye.z);
+    let best = a0, bl = -1;
+    for (const da of [0, 0.35, -0.35, 0.7, -0.7]) {   // the clearest heading roughly away from the shooter
+      const a = a0 + da; _hdir.set(Math.sin(a), 0.2, Math.cos(a)).normalize();
+      const L = City.raycast(_hs.set(c.x, c.y + 14, c.z), _hdir, 400) ? City.hit.t : 400;
+      if (L > bl + 30) { bl = L; best = a; }
+    }
+    return { type: 'heli', ph: 'spool', t: 0, head: best, v: 0, vy: 0, y0: c.y };
+  }
+  function heliMove(dt) {
+    const M = RIG.move, c = RIG.c;
+    if (!M) { RIG.rpm = 0.5; RIG.rot += dt * TAU * RIG.rpm; return; }
+    M.t += dt;
+    if (M.ph === 'spool') { RIG.rpm = lerp(0.5, 4, sstep(0, 1.2, M.t)); if (M.t > 1.2) { M.ph = 'lift'; M.t = 0; } }
+    else if (M.ph === 'lift') {
+      M.vy = Math.min(6, M.vy + 5 * dt);
+      let dy = M.head - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); RIG.yaw += clamp(dy, -0.7 * dt, 0.7 * dt);
+      if (c.y > M.y0 + 12) { M.ph = 'go'; M.t = 0; }
+    } else {
+      M.v = Math.min(Math.min(HELI_VMAX, HELI_V + HELI_VK * M.t), M.v + HELI_ACC * dt);   // and it keeps getting faster
+      const look = Math.max(60, M.v * 4);
+      _hdir.set(Math.sin(M.head), 0, Math.cos(M.head));
+      const block = City.raycast(_hs.set(c.x, c.y + 1, c.z), _hdir, look);
+      if (block) for (const da of [0.3, -0.3, 0.6, -0.6]) { _hdir.set(Math.sin(M.head + da), 0, Math.cos(M.head + da)); if (!City.raycast(_hs, _hdir, look)) { M.head += Math.sign(da) * 0.4 * dt; break; } }
+      M.vy = damp(M.vy, (block ? 9 : c.y < HELI_TOP ? HELI_CLIMB : 0) + 3 * Math.sin(M.t * TAU / 4.3) * sstep(4, 12, M.t), 1.5, dt);
+      // it jinks as it goes: weaving either side of its heading, more as it gets up to speed
+      const weave = HELI_WEAVE * sstep(4, 12, M.t) * Math.sin(M.t * TAU / HELI_WT);
+      let dy = M.head + weave - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); RIG.yaw += clamp(dy, -0.6 * dt, 0.6 * dt);
+      RIG.roll = damp(RIG.roll, -clamp(dy * 1.5, -0.4, 0.4), 2.5, dt);
+    }
+    RIG.vel.set(Math.sin(RIG.yaw) * M.v, M.vy, Math.cos(RIG.yaw) * M.v);
+    c.addScaledVector(RIG.vel, dt);
+    RIG.pitch = damp(RIG.pitch, M.ph === 'go' ? 0.1 + 0.1 * (M.v / HELI_VMAX) : 0, 2, dt);   // nose down, more as it speeds up
+    RIG.rot += dt * TAU * RIG.rpm;
+    rigAxes();
+    if (Math.hypot(c.x - PLAYER.eye.x, c.z - PLAYER.eye.z) > HELI_ESC) S.escaped = true;
+  }
   // no clear lap (river, the city's edge, something across a street): back and forth along its own street
   function carShuttle() {
     const f = RIG.f, c = RIG.c;
@@ -4563,6 +4662,7 @@ void main(){
   function rigMove(dt) {
     RIG.t += dt;
     const M = RIG.move;
+    if (RIG.kind === 'heli') { heliMove(dt); return; }
     if (RIG.kind === 'quad') {
       // hovering: a slow drift side to side and a gentle bob; alerted: up and down between two heights and
       // side to side across its run in, quicker (two patterns out of step, so it never quite repeats)
@@ -4600,6 +4700,7 @@ void main(){
   // side with the longer clear run, at its height
   function refreshSpot() {
     const sp = S.spot; if (!sp || !RIG.kind) return;
+    if (RIG.kind === 'heli') { heliSpot(sp); return; }
     const c = RIG.c, quad = RIG.kind === 'quad', ax = quad ? RIG.ax : RIG.f.x, az = quad ? RIG.az : RIG.f.z, y0 = quad ? c.y : 0.9;
     const off = quad ? 1.2 : 2.6, runF = rayLen(c.x + ax * off, y0, c.z + az * off, ax, az, 60), runB = rayLen(c.x - ax * off, y0, c.z - az * off, -ax, -az, 60);
     const dir = runF >= runB ? 1 : -1;
@@ -4607,13 +4708,23 @@ void main(){
     sp.entry = ex(9); sp.entry2 = ex(33);
     if (S.alive) { const g = gateFor(c.x, c.y + RIG.cy, c.z); if (g) sp.gate = g; }
   }
+  // the helicopter's way in: on the pad, like a man on a tower roof (in over the parapet, the last stretch
+  // level across the deck); in the air, a level run from behind it (the shooter's side) at its height
+  function heliSpot(sp) {
+    const c = RIG.c, eye = PLAYER.eye, tl = Math.hypot(eye.x - c.x, eye.z - c.z) || 1, tx = (eye.x - c.x) / tl, tz = (eye.z - c.z) / tl;
+    const air = !!(RIG.move && RIG.move.ph !== 'spool'), y0 = c.y + RIG.cy;
+    sp.air = air;
+    if (air) { sp.entry = new THREE.Vector3(c.x + tx * 9, y0, c.z + tz * 9); sp.entry2 = new THREE.Vector3(c.x + tx * 33, y0, c.z + tz * 33); }
+    else { delete sp.entry; delete sp.entry2; }
+    if (S.alive) { const g = gateFor(c.x, y0, c.z) || (air ? new THREE.Vector3(c.x + tx * 60, y0 + 8, c.z + tz * 60) : null); if (g) sp.gate = g; }
+  }
   const cvA = V3(), cvB = V3(), cD = V3(), cN = V3(), cQ = new THREE.Quaternion(), cQ2 = new THREE.Quaternion(), XAX = new THREE.Vector3(1, 0, 0);
   function rigExplode(point, dir) {
     if (!S.alive) return;
-    S.alive = false; S.settled = false; RIG.move = null; RIG.restT = 0; RIG.thudT = 0;
+    S.alive = false; S.settled = false; RIG.restT = 0; RIG.thudT = 0;
     RIG.g.updateMatrixWorld(true);
     cvB.set(dir.x, 0, dir.z); if (cvB.lengthSq() < 1e-6) cvB.copy(RIG.f); cvB.normalize();
-    const car = RIG.kind === 'car', tyres = RIG.meshes.filter((m) => m.userData.tyre), kick = car ? tyres[Math.floor(grnd(0, tyres.length))] : null;   // the tyre that bounces off down the road
+    const car = RIG.kind === 'car' || RIG.kind === 'heli', tyres = RIG.meshes.filter((m) => m.userData.tyre), kick = tyres.length ? tyres[Math.floor(grnd(0, tyres.length))] : null;   // the tyre that bounces off down the road
     RIG.meshes.forEach((m, i) => {
       const p = m.getWorldPosition(V3()), q = m.getWorldQuaternion(new THREE.Quaternion());
       group.add(m); m.position.copy(p); m.quaternion.copy(q);
@@ -4624,11 +4735,13 @@ void main(){
         if (m.userData.high) v.y += 6;                                      // the cab roof goes highest
         if (m.userData.low) { v.multiplyScalar(0.2); v.y = grnd(2, 3); }   // the chassis barely leaves the street
         if (m === kick) { v.copy(cvB).multiplyScalar(grnd(9, 12)).addScaledVector(cvA, 2); v.y = grnd(7, 9); }
+        if (m.userData.fly) { v.copy(cvA).multiplyScalar(grnd(9, 15)); v.y = grnd(4, 10); }   // rotor blades whirl off
+        v.add(RIG.vel);                                                                         // a helicopter's pieces carry on with it
       } else {
         // rotors and motors fly off; the body takes the round's push and drops
         v.copy(cvA).multiplyScalar(i < 3 ? grnd(0.5, 1.5) : grnd(4, 9)).addScaledVector(cvB, i < 3 ? grnd(2, 4) : grnd(1, 3)); v.y = i < 3 ? grnd(0, 2) : grnd(2, 6);
       }
-      const w = V3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(grnd(4, car ? 12 : 20));
+      const w = V3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(m.userData.fly ? grnd(15, 25) : grnd(4, car ? 12 : 20));
       RIG.deb.push({ m, p, q, v, w, r: m.userData.r, tyre: m.userData.tyre, e: m.userData.tyre ? 0.62 : 0.28, rest: false, still: 0, ground: false, roll: 0 });
     });
   }
@@ -4687,7 +4800,7 @@ void main(){
   function rigJoints() {
     rigPts.length = 0;
     if (S.alive || !RIG.deb.length) { rigPts.push(chest); return rigPts; }
-    RIG.deb.forEach((d, i) => { if (!d.tyre && (RIG.kind === 'car' || i < 3)) rigPts.push(d.p); });
+    RIG.deb.forEach((d, i) => { if (!d.tyre && !d.m.userData.fly && (RIG.kind !== 'quad' || i < 3)) rigPts.push(d.p); });
     return rigPts;
   }
   // ---- highway technical: out in the open on the main avenue the shooter looks down, cruising slowly up one
@@ -6623,6 +6736,7 @@ const Hud = (() => {
       case 'attract': attract(G); break;
       case 'brief': brief(G); break;
       case 'aim': case 'shot': case 'mload': scopeHud(G); break;
+      case 'escaped': scopeHud(G); if (blink(2.5)) plated('TARGET ESCAPED', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85); break;   // the helicopter got away
       case 'mflight': missionHud(G); break;   // fire mission
       case 'flight': flightHud(G); break;
       case 'killcam': case 'misscam': result(G); demoBanner(G, banSide > 0 ? 88 * u : H - 72 * u); break;
@@ -7072,7 +7186,7 @@ function newStage() {
   G.wind.set(Math.cos(th), 0, Math.sin(th)).multiplyScalar(G.diff.wind * grnd(0.75, 1.1));
   FX.wind.copy(G.wind).multiplyScalar(0.6);
   // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
-  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0;
+  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage !== 10;   // (stage 10 is the helicopter)
   Mortar.clear();
   if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
   planHidden();
@@ -7155,12 +7269,12 @@ function scoreHit(ev) {
   G.lastHit = { range, centre, part: ev.part };
   G.tallyRows = [
     [`RANGE ${Math.round(range)} M`, Math.round(range * 2)],
-    ev.part === 'car' ? ['TECHNICAL DESTROYED', 600] : ev.part === 'quad' ? ['DRONE DOWN', 600] : [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
+    ev.part === 'car' ? ['TECHNICAL DESTROYED', 600] : ev.part === 'quad' ? ['DRONE DOWN', 600] : ev.part === 'heli' ? ['HELICOPTER DOWN', 1000] : [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
     [`CONTROL RESERVE ${Math.round(ctrl * 100)}%`, Math.round(ctrl * 800)],
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : k === 'ledge' ? ['ON THE LEDGE', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : k === 'ledge' ? ['ON THE LEDGE', 1200] : k === 'heli' ? (Target.S.spot.air ? ['AIRBORNE', 1500] : ['ON THE PAD', 800]) : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
   { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
   { const agl = Math.round(Target.S.root.y); if (agl >= 75) G.tallyRows.push([`HIGH RISE ${agl} M`, agl * 5]); }
@@ -7194,7 +7308,7 @@ function onBulletEvent(ev) {
   if (G.hitDir.lengthSq() < 1e-6) G.hitDir.set(0, 0, -1); G.hitDir.normalize();
   camK.init = false;
   if (ev.type === 'hit') {
-    const car = Target.S.type === 'car', quad = Target.S.type === 'quad', blast = Target.S.type === 'man' && Target.S.char === 'pack';
+    const car = Target.S.type === 'car' || Target.S.type === 'heli', quad = Target.S.type === 'quad', blast = Target.S.type === 'man' && Target.S.char === 'pack';
     if (blast) packBlast(); else if (car) packBlast(2); else if (quad) packBlast(0.6);
     Target.launch(ev.point, G.hitDir, ev.part, blast ? 1.7 : 1);
     Sfx.hit(); G.flash = blast || car ? 1 : quad ? 0.6 : 0.35;
@@ -7706,7 +7820,7 @@ function setupKillView(second) {
     // pieces land
     const out = kcS.subVectors(spot.entry2, spot.entry); out.y = 0;
     const L = out.length() || 1; out.multiplyScalar(1 / L);
-    const sd = second ? -1 : 1, quad = spot.kind === 'quad', back = second ? 12 : 7;
+    const sd = second ? -1 : 1, quad = spot.kind === 'quad' || spot.kind === 'heli', back = second ? 12 : 7;
     const y = quad ? Math.max(4, spot.entry.y + (second ? 4 : 1.5)) : (second ? 7 : 4);
     KC.base.copy(spot.entry).addScaledVector(out, back - 3); KC.base.y = y;
     KC.base.x += -out.z * sd * 1.3; KC.base.z += out.x * sd * 1.3; KC.dir.copy(out); KC.fixed = true;
@@ -7942,10 +8056,16 @@ function tick(rdt) {
       updateAim(rdt);
       // fire mission: lock the three trucks, then the bomb goes down the tube
       if (G.mission) { if (Mortar.aim(fire_, Input.tap)) { Sfx.mortarLoad(); setState('mload'); } break; }
+      // the helicopter got away: the stage is lost (no kill, no refill) and the game moves on
+      if (Target.S.escaped && !G.demo) { setState('escaped'); Sfx.deny && Sfx.deny(); break; }
       if (G.demo && G.stateT > 1.6) { fire(); break; }
       if (fire_) { fire(); break; }
       break;
     }
+    case 'escaped':
+      updateAim(rdt);
+      if (G.stateT > 3.2 || (fire_ && G.stateT > 1.2)) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
+      break;
     case 'mload':   // fire mission: loaded; tap (or click, space) to fire
       updateAim(rdt);
       if (G.stateT > 2.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT...
@@ -8111,7 +8231,7 @@ function tick(rdt) {
   // world simulation (slow motion aware)
   tgtPrev.copy(Target.chest);
   Target.update(gdt);
-  if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, 8);
+  if (gdt > 1e-5 && Target.S.alive) G.tgtVel.subVectors(Target.chest, tgtPrev).multiplyScalar(1 / gdt).clampLength(0, Target.S.type === 'heli' ? 30 : 8);
   else if (!Target.S.alive) G.tgtVel.set(0, 0, 0);
   City.updateTraffic(gdt);
   FX.update(gdt, camera.position);
@@ -8206,7 +8326,7 @@ function demoAim(rdt) {
 function render() {
   // test hook: a free camera for looking at things up close (window.__X.look)
   if (G.dbgView) { const v = G.dbgView; camera.position.copy(v.p); camera.up.set(0, 1, 0); camera.lookAt(v.t); camera.fov = v.fov || 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
-  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload'].includes(G.state) ? 1 : 0;
+  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload', 'escaped'].includes(G.state) ? 1 : 0;
   G.scopeAmt = scopeOn;
   const d = Post.display.uniforms, s = Post.sensor.uniforms;
   d.uMode.value = G.mode; d.uScope.value = G.scopeAmt; d.uScopeR.value = G.scopeR; d.uFlash.value = G.flash * 0.6;

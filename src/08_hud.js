@@ -923,6 +923,7 @@ const Hud = (() => {
       case 'attract': attract(G); break;
       case 'brief': brief(G); break;
       case 'aim': case 'shot': case 'mload': scopeHud(G); break;
+      case 'escaped': scopeHud(G); if (blink(2.5)) plated('TARGET ESCAPED', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85); break;   // the helicopter got away
       case 'mflight': missionHud(G); break;   // fire mission
       case 'flight': flightHud(G); break;
       case 'killcam': case 'misscam': result(G); demoBanner(G, banSide > 0 ? 88 * u : H - 72 * u); break;
