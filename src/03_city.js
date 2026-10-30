@@ -101,7 +101,7 @@ const City = (() => {
   group.add(sky, ground);
 
   // ---- state -----------------------------------------------------------------
-  let boxes = [], grid = new Map(), roofs = [], emitters = [];
+  let boxes = [], grid = new Map(), roofs = [], emitters = [], ledges = [];
   // instance lists. B/L/H: axis-aligned [x0,y0,z0,x1,y1,z1,seed,style]; RG: parapet rings (same form);
   // T-lists: [x,y,z, sx,sy,sz, rx,ry,rz, seed, style] (Euler YXZ)
   let B = [], L = [], H = [], RG = [], TK = [], CN = [], PY = [], WD = [], HY = [], DS = [], TR = [], CB = [], LP = [], STC = [], STT = [];
@@ -404,8 +404,11 @@ const City = (() => {
         addB(bx0 - 0.35, top - 0.5, bz0 - 0.35, bx1 + 0.35, top, bz1 + 0.35, 3, seed, false);
         if (lod >= 1) RG.push([bx0, top, bz0, bx1, top + 1.05, bz1, seed, 3]);
         const sx = (bx1 - bx0) * crnd(0.08, 0.2), sz = (bz1 - bz0) * crnd(0.08, 0.2), off = crnd() < 0.5;
+        const ox0 = bx0, ox1 = bx1, oz0 = bz0, oz1 = bz1;
         bx0 += off ? sx * 2 : sx; bx1 -= off ? 0 : sx; bz0 += sz; bz1 -= sz;
         if (bx1 - bx0 < 8 || bz1 - bz0 < 8) { y = top; break; }
+        // the setback terrace round the next tier (a target spot: a ledge high on the tower, the wall behind it)
+        if (lod === 2) ledges.push({ x0: ox0, z0: oz0, x1: ox1, z1: oz1, y: top, h: top, occ: [[bx0, bz0, bx1, bz1]], ledge: true });
       }
       y = top;
     }
@@ -430,7 +433,7 @@ const City = (() => {
       if (lod >= 1) RG.push([x0, hp, z0, x1, hp + 1.0, z1, crnd(), 3]);
       addB(x0 + 1, hp, z0 + 1, x0 + 7, hp + 3.4, z0 + 9, 12);
       const occ = [[x0, z0, x0 + 8, z0 + 10]];
-      roofs.push({ x0, z0, x1, z1, y: hp, h: hp, occ });
+      roofs.push({ x0, z0, x1, z1, y: hp, h: hp, occ, garage: true });
       if (lod === 2) for (let i = 0; i < 6; i++) { const cx = crnd(x0 + 4, x1 - 4), cz = crnd(z0 + 12, z1 - 4); addB(cx - 0.9, hp, cz - 2.2, cx + 0.9, hp + 1.45, cz + 2.2, 3, crnd(), false); occ.push([cx - 1, cz - 2.4, cx + 1, cz + 2.4]); }
       return;
     }
@@ -906,7 +909,7 @@ const City = (() => {
     reseedCity(hs >>> 0); info.seed = seed;
     const PT = [performance.now()]; info.timing = PT; info.bridges = info.cranes = info.towers = info.cables = info.spires = info.cool = info.crowns = 0;
     for (const m of meshes) { group.remove(m); m.geometry.dispose(); }
-    meshes = []; boxes = []; grid = new Map(); roofs = []; emitters = []; LP = []; cars = []; carMesh = null; train = null; coverList = []; coverMesh = null;
+    meshes = []; boxes = []; grid = new Map(); roofs = []; emitters = []; ledges = []; LP = []; cars = []; carMesh = null; train = null; coverList = []; coverMesh = null;
     for (const g of glassList) { group.remove(g.m); g.m.geometry.dispose(); } for (const m of propList) { group.remove(m); m.geometry.dispose(); } glassList = []; propList = [];
     B = []; L = []; H = []; RG = []; TK = []; CN = []; PY = []; WD = []; HY = []; DS = []; TR = []; CB = []; STC = []; STT = [];
     prof = rollProfile(); info.sector = prof.name;
@@ -1062,7 +1065,7 @@ const City = (() => {
   return {
     group, generate, raycast, hit, forBoxesNear, updateTraffic, info, addCover, popCol, addGlass, breakGlass, addProp, addMask, breakGlassNear,
     addCol(x0, y0, z0, x1, y1, z1, kind = 1) { return addCol(x0, y0, z0, x1, y1, z1, kind); },
-    get roofs() { return roofs; }, get emitters() { return emitters; }, get boxes() { return boxes; },
+    get roofs() { return roofs; }, get ledges() { return ledges; }, get emitters() { return emitters; }, get boxes() { return boxes; },
     get profile() { return prof; },
     get features() { return { river, parks, cool: reserved }; },
     get steamVents() { return steamVents; },

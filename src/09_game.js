@@ -233,9 +233,10 @@ function scoreHit(ev) {
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; if (k !== 'highway') G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : k === 'ledge' ? ['ON THE LEDGE', 1200] : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
   { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
+  { const agl = Math.round(Target.S.root.y); if (agl >= 75) G.tallyRows.push([`HIGH RISE ${agl} M`, agl * 5]); }
   if (Target.S.wary > 0) G.tallyRows.push(['ALERTED TARGET', 500]);
   if (Target.S.type !== 'man' && G.tgtVel.length() > 1) G.tallyRows.push(['MOVING TARGET', 400]);
   if (Target.S.char === 'pack') G.tallyRows.push(['BACKPACK BLAST', 800]);
@@ -464,7 +465,7 @@ function planHidden() {
   const ox = c.x - HR, oz = c.z - HR, nx = Math.ceil((2 * HR) / CS), nz = nx;
   let maxH = c.y + 10;
   City.forBoxesNear(c.x, c.z, HR + 4, (b) => { if (b.x1 > ox && b.x0 < ox + nx * CS && b.z1 > oz && b.z0 < oz + nz * CS && b.y1 < 400) maxH = Math.max(maxH, b.y1); });
-  const top = Math.min(200, maxH + 20), ny = Math.ceil(top / CS), N = nx * ny * nz;
+  const top = Math.min(260, maxH + 20), ny = Math.ceil(top / CS), N = nx * ny * nz;
   const occ = new Uint8Array(N), I = (i, j, k) => (k * ny + j) * nx + i;
   const PH = 1.6, PV = 0.6;
   City.forBoxesNear(c.x, c.z, HR + 4, (b) => {

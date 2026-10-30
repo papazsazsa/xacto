@@ -773,7 +773,7 @@ void main(){
     const eye = PLAYER.eye, hx = eye.x - x, hz = eye.z - z, hl = Math.hypot(hx, hz) || 1, ux = hx / hl, uz = hz / hl;
     for (const back of [55, 42, 66]) for (const up of [18, 28, 40, 55, 75, 100]) {
       const gx = x + ux * back, gz = z + uz * back, gy = y + up;
-      if (gy > 220) continue;
+      if (gy > Math.max(220, y + 50)) continue;
       if (City.raycast(_hs.set(gx, gy + 5, gz), _dn, 10)) continue;   // open air 5 m above and below
       let ok = true;
       for (const [o, oy] of [[0, 0], [3.5, 0], [-3.5, 0], [0, 3.5]]) {
@@ -786,17 +786,21 @@ void main(){
     return null;
   }
   function rayLen(x, y, z, dx, dz, len) { _hdir.set(dx, 0, dz).normalize(); return City.raycast(_hs.set(x, y, z), _hdir, len) ? City.hit.t : len; }
-  // What the target is, stage by stage. Mostly a man in a tight spot (roof, street, under an awning) from a
-  // shuffled bag, no spot type twice in a row. Round 2 is a technical out on the main avenue. After that a
-  // technical and a quadcopter each turn up about once every 6 to 8 stages.
+  // What the target is, stage by stage. Mostly a man in a tight spot from a shuffled bag, no spot type twice in
+  // a row: a lower roof behind taller buildings, the top of one of the tallest towers, a setback ledge high on a
+  // tower, a sidewalk down in a street canyon, under an awning. Round 2 is a technical out on the main avenue,
+  // round 4 a man way up on top of one of the tallest towers. After that a technical and a quadcopter each
+  // turn up about once every 6 to 8 stages.
   let bag = [], lastKind = '', nextCar = 9, nextQuad = 5, lastMachine = 2;
   function schedule() { nextCar = 8 + Math.floor(gameRand() * 3); nextQuad = 4 + Math.floor(gameRand() * 3); lastMachine = 2; }
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
+    if (stage === 4) { lastKind = 'tower'; return 'tower'; }       // the fourth: way up on top of a tall tower
     const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : ['roof', 'roof', 'street', 'awning'];   // on a roof about half the time
+    // up high (roof, tower, ledge) about three times in five
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage <= 3 ? ['roof', 'roof', 'street', 'awning'] : ['roof', 'tower', 'ledge', 'street', 'awning'];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -923,7 +927,7 @@ void main(){
     S.spot = { kind, gate, awning: awning ? awning.map((b) => b.slice(0, 6)) : null, nx: c.nx, nz: c.nz, ax: c.ax, az: c.az, wall: c.wall };
     return true;
   }
-  function tryRoofHidden(R, stage) {
+  function tryRoofHidden(R, stage, kind = 'roof') {
     for (let k = 0; k < 10; k++) {
       const x = grnd(R.x0 + 2, R.x1 - 2), z = grnd(R.z0 + 2, R.z1 - 2);
       if (!freeOnRoof(R, x, z, 1.6, 1.0)) continue;
@@ -933,14 +937,21 @@ void main(){
       if (!skyOpen(x, R.y + 2.4, z) || !skyOpen(ax, R.y + 2.4, az) || !skyOpen(bx, R.y + 2.4, bz)) { nope('hrSky'); continue; }
       const gate = gateFor(x, R.y + 1.3, z); if (!gate) { nope('hrGate'); continue; }
       place(R, gameRand() < 0.7 ? 'patrol' : 'phone', ax, az, bx, bz, a, {});
-      S.spot = { kind: 'roof', gate, awning: null };
+      S.spot = { kind, gate, awning: null };
       return true;
     }
     return false;
   }
   function spawnHidden(stage, opts) {
     S.stage = stage;
-    const want = ['roof', 'street', 'awning', 'car', 'quad', 'highway'].includes(opts.kind) ? opts.kind : hiddenKind(stage), order = [want, ...['street', 'awning', 'roof'].filter((k) => k !== want)];
+    const want = ['roof', 'street', 'awning', 'car', 'quad', 'highway', 'tower', 'ledge'].includes(opts.kind) ? opts.kind : hiddenKind(stage);
+    // up high: the asked-for spot, then the other high one, then the usual mix
+    if (want === 'tower' || want === 'ledge') {
+      if ((want === 'tower' ? spawnTower : spawnLedge)(stage)) return true;
+      if (opts.kind) return false;
+      if ((want === 'tower' ? spawnLedge : spawnTower)(stage)) return true;
+    }
+    const base = want === 'tower' || want === 'ledge' ? 'roof' : want, order = [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
     for (const band of [first, [first[0] - 120, first[1] + 120], widest]) {
       for (const kind of order) {
@@ -951,9 +962,55 @@ void main(){
           for (let a = 0; a < Math.min(pool.length, 90); a++) if (tryRoofHidden(pool[a], stage)) return true;
         } else if (kind === 'car') { const cands = carSpots(band); for (let a = 0; a < Math.min(cands.length, 80); a++) if (tryCar(cands[a])) return true; }
         else if (kind === 'highway') { for (let a = 0; a < 12; a++) if (tryHighway(band)) return true; }
-        else if (kind === 'quad') { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 120); a++) if (tryQuad(cands[a])) return true; }
+        else if (kind === 'quad') { if (spawnQuad(band)) return true; }
         else { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 160); a++) if (tryStreet(cands[a], kind, stage)) return true; }
         if (opts.kind) break;   // a requested kind: no substitutes
+      }
+    }
+    return false;
+  }
+  // ---- way up high. The top deck of one of the tallest towers in view (taller first), or a setback terrace
+  // high on a tower with its upper floors rising beside him. Both out of the shooter's sight: the round climbs
+  // past the tower's edge and comes in over the deck or along the terrace.
+  function towerBand(stage, k) { const s = Math.max(1, stage) - 1; return k === 0 ? [280, Math.min(950, 560 + 40 * s)] : k === 1 ? [250, Math.min(1000, 760 + 40 * s)] : [230, 1100]; }
+  const highFirst = (list) => list.map((R) => [R, R.y * grnd(0.8, 1)]).sort((a, b) => b[1] - a[1]).map((a) => a[0]);
+  const centreIn = (R, band) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band);
+  function spawnTower(stage) {
+    for (const [k, minY] of [[0, 75], [1, 75], [2, 50]]) {
+      const band = towerBand(stage, k);
+      const pool = highFirst(City.roofs.filter((R) => !R.garage && R.y >= minY && R.y <= 190 && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && centreIn(R, band)));
+      for (let a = 0; a < Math.min(pool.length, 30); a++) if (tryRoofHidden(pool[a], stage, 'tower')) return true;
+    }
+    return false;
+  }
+  function spawnLedge(stage) {
+    for (const [k, minY] of [[0, 40], [1, 30], [2, 30]]) {
+      const band = towerBand(stage, k);
+      const pool = highFirst(City.ledges.filter((L) => L.y >= minY && L.y <= 190 && centreIn(L, band)));
+      for (let a = 0; a < Math.min(pool.length, 40); a++) if (tryLedge(pool[a], stage)) return true;
+    }
+    return false;
+  }
+  // a terrace is the ring between the lower tier's edge and the next tier's wall: he walks along one strip of it
+  function tryLedge(L, stage) {
+    const o = L.occ[0];
+    const strips = shuffled([[L.x0, L.z0, o[0], L.z1, 0, 1], [o[2], L.z0, L.x1, L.z1, 0, 1], [L.x0, L.z0, L.x1, o[1], 1, 0], [L.x0, o[3], L.x1, L.z1, 1, 0]]);
+    for (const [x0, z0, x1, z1, ax, az] of strips) {
+      const across = ax ? z1 - z0 : x1 - x0, along = ax ? x1 - x0 : z1 - z0;
+      if (across < 2.9 || along < 12) continue;
+      for (let k = 0; k < 4; k++) {
+        const x = ax ? grnd(x0 + 5, x1 - 5) : (x0 + x1) / 2, z = ax ? (z0 + z1) / 2 : grnd(z0 + 5, z1 - 5);
+        if (!freeOnRoof(L, x, z, 1.2, 0.9)) continue;
+        const Lw = grnd(2.5, 4.5), A = [x - ax * Lw, z - az * Lw], B = [x + ax * Lw, z + az * Lw];
+        if (!pathFree(L, A[0], A[1], B[0], B[1], 1.1, 0.8)) { nope('hlPath'); continue; }
+        if (!hiddenAt(x, L.y, z) || !hiddenAt(A[0], L.y, A[1]) || !hiddenAt(B[0], L.y, B[1])) { nope('hlVisible'); continue; }
+        // open sky straight above his walk (the tower wall is right beside him, so no sideways samples)
+        if ([[x, z], A, B].some(([px, pz]) => City.raycast(_hs.set(px, L.y + 2.4, pz), _up, 90))) { nope('hlSky'); continue; }
+        if (!walkClear(A[0], A[1], B[0], B[1], L.y, 0.5)) { nope('hlWalk'); continue; }
+        const gate = gateFor(x, L.y + 1.3, z); if (!gate) { nope('hlGate'); continue; }
+        place(L, gameRand() < 0.65 ? 'patrol' : 'phone', A[0], A[1], B[0], B[1], Math.atan2(ax, az), {});
+        S.spot = { kind: 'ledge', gate, awning: null };
+        return true;
       }
     }
     return false;
@@ -1505,7 +1562,7 @@ void main(){
   // ======================================================================
   const RIG = { kind: '', c: V3(), yaw: 0, f: V3(), r: V3(), lo: [0, 0, 0], hi: [0, 0, 0], cy: 0, meshes: null, g: null,
     deb: [], restT: 0, thudT: 0, move: null, t: 0, h0: 0, ax: 0, az: 1, tilt: 0 };
-  const CAR_L = 4.9, CAR_W = 1.84, CAR_H = 2.05, TYRE_R = 0.38, CAR_V = 4, QUAD_A = 5, QUAD_T = 9;
+  const CAR_L = 4.9, CAR_W = 1.84, CAR_H = 2.05, TYRE_R = 0.38, CAR_V = 4, QUAD_A = 6, QUAD_T = 3.6, QUAD_S = 4, QUAD_ST = 4.7;
   const rigMat = (t) => thermalMat(FS_SOLID, { uT: { value: t }, uStripe: { value: 0 } }, { side: THREE.DoubleSide });
   const carMat = [0.95, 0.62, 0.36, 0.78, 0.9, 0.55, 0.58].map(rigMat);   // engine, body, glass, tyres, gun, underbody, bed floor
   const quadMat = [0.97, 0.78, 0.88, 0.6].map(rigMat);   // motors, frame, battery, rotors
@@ -1590,7 +1647,7 @@ void main(){
   }
   function rigAxes() { RIG.f.set(Math.sin(RIG.yaw), 0, Math.cos(RIG.yaw)); RIG.r.set(Math.cos(RIG.yaw), 0, -Math.sin(RIG.yaw)); }
   function rigSpawn(kind, x, y, z, yaw) {
-    rigReset(); RIG.kind = kind; RIG.c.set(x, y, z); RIG.yaw = yaw; RIG.t = grnd(0, 10); RIG.h0 = y; RIG.tilt = 0; rigAxes();
+    rigReset(); RIG.kind = kind; RIG.c.set(x, y, z); RIG.yaw = yaw; RIG.t = grnd(0, 10); RIG.h0 = y; RIG.tilt = 0; RIG.floor = 0; RIG.ps = 0; RIG.o = new THREE.Vector3(x, y, z); rigAxes();
     if (kind === 'car') { RIG.meshes = carMeshes; RIG.g = carG; RIG.lo = [-CAR_W / 2, 0.12, -CAR_L / 2]; RIG.hi = [CAR_W / 2, CAR_H, CAR_L / 2]; RIG.cy = 0.85; }
     else { RIG.meshes = quadMeshes; RIG.g = quadG; RIG.lo = [-0.85, -0.4, -0.85]; RIG.hi = [0.85, 0.4, 0.85]; RIG.cy = 0; }   // a forgiving box round the quadcopter
     S.type = kind; S.char = kind; S.alive = true; S.ragdoll = false; S.settled = false; S.roof = null; S.packGone = false;
@@ -1628,7 +1685,7 @@ void main(){
   // ---- alerted: start the steady path (it then keeps going for the rest of the stage)
   function rigAlert() {
     if (!RIG.kind || !S.alive || RIG.move) return;
-    if (RIG.kind === 'quad') { RIG.move = { type: 'bob', A: Math.min(QUAD_A, RIG.h0 - 4.5), ph: 0, h0: RIG.h0 }; return; }
+    if (RIG.kind === 'quad') { RIG.move = { type: 'bob', A: Math.min(QUAD_A, RIG.h0 - (RIG.floor || 0) - 4.5), ph: 0, h0: RIG.h0, ps: RIG.ps || 0 }; return; }
     RIG.move = carLoop() || carShuttle();
   }
   // the block beside the parked car: laps in the lanes just outside its kerbs, corners rounded
@@ -1690,9 +1747,18 @@ void main(){
     RIG.t += dt;
     const M = RIG.move;
     if (RIG.kind === 'quad') {
-      // hovering: a slow breathing bob and a slow turn; alerted: up and down between two heights
-      if (M) { M.ph += dt * TAU / QUAD_T; RIG.c.y = M.h0 + M.A * Math.sin(M.ph); RIG.tilt = 0.12 * Math.cos(M.ph); }
-      else RIG.c.y = RIG.h0 + 0.3 * Math.sin(RIG.t * 1.3);
+      // hovering: a slow drift side to side and a gentle bob; alerted: up and down between two heights and
+      // side to side across its run in, quicker (two patterns out of step, so it never quite repeats)
+      const lx = -RIG.az, lz = RIG.ax, o = RIG.o || RIG.c;
+      if (M) {
+        M.ph += dt * TAU / QUAD_T; M.ps += dt * TAU / QUAD_ST;
+        RIG.c.y = M.h0 + M.A * Math.sin(M.ph); RIG.tilt = 0.12 * Math.cos(M.ph);
+        const sw = QUAD_S * Math.sin(M.ps); RIG.c.x = o.x + lx * sw; RIG.c.z = o.z + lz * sw; RIG.ps = M.ps;
+      } else {
+        RIG.ps = (RIG.ps || 0) + dt * TAU / 6;
+        RIG.c.y = RIG.h0 + 1.0 * Math.sin(RIG.t * TAU / 4);
+        const sw = 2.5 * Math.sin(RIG.ps); RIG.c.x = o.x + lx * sw; RIG.c.z = o.z + lz * sw;
+      }
       RIG.yaw += dt * 0.15; rigAxes();
       return;
     }
@@ -1820,23 +1886,67 @@ void main(){
     refreshSpot();
     return true;
   }
-  // ---- quadcopter spot: hovering over the middle of a street, out of the shooter's sight at every height it
-  // will bob through, with room round it and a clear run in along the street at its height
+  // ---- quadcopter spots, a different kind each time it turns up: low over a street, high in a street canyon,
+  // over a rooftop, over the top of a tall tower. Always out of the shooter's sight everywhere it will move
+  // (up and down, side to side across its run in), with room round it and a clear run in at its height.
   function quadHidden(x, y, z) {
     for (const [dx, dy, dz] of [[0, 0, 0], [0.8, 0, 0], [-0.8, 0, 0], [0, 0, 0.8], [0, 0, -0.8], [0, 0.4, 0], [0, -0.4, 0]]) if (visibleFrom(PLAYER.eye, _hs.set(x + dx, y + dy, z + dz))) return false;
     return true;
   }
-  function tryQuad(c) {
-    const cx = c.nx ? (c.wall + c.opp) / 2 : c.x, cz = c.nz ? (c.wall + c.opp) / 2 : c.z, h = grnd(10, 22), A = Math.min(QUAD_A, h - 4.5);
-    if (!quadHidden(cx, h, cz) || !quadHidden(cx, h + A, cz) || !quadHidden(cx, h - A, cz)) return nope('hqVisible');
-    if (!boxFree([cx - 2.2, h - A - 1.5, cz - 2.2, cx + 2.2, h + A + 1.5, cz + 2.2], null)) return nope('hqBox');
-    const runA = rayLen(cx, h, cz, c.ax, c.az, 60), runB = rayLen(cx, h, cz, -c.ax, -c.az, 60);
-    if (Math.max(runA, runB) < 40) return nope('hqRun');
+  let quadBag = [];
+  function quadSite() { if (!quadBag.length) quadBag = shuffled(['street', 'canyon', 'roof', 'tower']); return quadBag.pop(); }
+  // (cx, h, cz) the hover point, floor the street or deck beneath, (ax, az) the axis of the run in
+  function tryQuadAt(cx, h, cz, floor, ax, az, site, run = 40) {
+    const A = Math.min(QUAD_A, h - floor - 4.5), lx = -az, lz = ax;
+    if (A < 2) return nope('hqLow');
+    for (const y of [h, h + A, h - A]) for (const sw of [-QUAD_S, 0, QUAD_S]) if (!quadHidden(cx + lx * sw, y, cz + lz * sw)) return nope('hqVisible');
+    const ex = 2.2 + QUAD_S * Math.abs(lx), ez = 2.2 + QUAD_S * Math.abs(lz);
+    if (!boxFree([cx - ex, h - A - 1.5, cz - ez, cx + ex, h + A + 1.5, cz + ez], null)) return nope('hqBox');
+    const runA = rayLen(cx, h, cz, ax, az, 60), runB = rayLen(cx, h, cz, -ax, -az, 60);
+    if (Math.max(runA, runB) < run) return nope('hqRun');
     const gate = gateFor(cx, h, cz); if (!gate) return nope('hqGate');
-    rigSpawn('quad', cx, h, cz, grnd(0, TAU)); RIG.ax = c.ax; RIG.az = c.az;
-    S.spot = { kind: 'quad', gate, glass: [] };
+    rigSpawn('quad', cx, h, cz, grnd(0, TAU)); RIG.ax = ax; RIG.az = az; RIG.floor = floor;
+    S.spot = { kind: 'quad', site, gate, glass: [] };
     refreshSpot();
     return true;
+  }
+  function tryQuad(c, site = 'street') {
+    const cx = c.nx ? (c.wall + c.opp) / 2 : c.x, cz = c.nz ? (c.wall + c.opp) / 2 : c.z;
+    return tryQuadAt(cx, site === 'canyon' ? grnd(26, 48) : grnd(10, 22), cz, 0, c.ax, c.az, site);
+  }
+  // over a roof deck: the run in along whichever axis has the longer clear stretch at its height
+  function tryQuadRoof(R, site) {
+    for (let k = 0; k < 4; k++) {
+      const x = grnd(R.x0 + 3, R.x1 - 3), z = grnd(R.z0 + 3, R.z1 - 3);
+      if (!freeOnRoof(R, x, z, 2.5, 1.5)) continue;
+      const h = R.y + grnd(8, 12), alongX = rayLen(x, h, z, 1, 0, 60) + rayLen(x, h, z, -1, 0, 60) > rayLen(x, h, z, 0, 1, 60) + rayLen(x, h, z, 0, -1, 60);
+      if (tryQuadAt(x, h, z, R.y, alongX ? 1 : 0, alongX ? 0 : 1, site, 30)) return true;
+    }
+    return false;
+  }
+  // high beside a tall tower, tucked in behind it: a few metres off one face, below the roofline, the run in
+  // along the face
+  function tryQuadTower(R) {
+    const faces = shuffled([[R.x0, null, -1, 0], [R.x1, null, 1, 0], [null, R.z0, 0, -1], [null, R.z1, 0, 1]]);
+    for (const [fx, fz, nx, nz] of faces) for (let k = 0; k < 2; k++) {
+      const h = Math.max(26, R.y - grnd(4, 16)), off = 7;
+      const x = fx != null ? fx + nx * off : grnd(R.x0 + 3, R.x1 - 3), z = fz != null ? fz + nz * off : grnd(R.z0 + 3, R.z1 - 3);
+      if (tryQuadAt(x, h, z, 0, Math.abs(nz), Math.abs(nx), 'tower')) return true;
+    }
+    return false;
+  }
+  function spawnQuad(band) {
+    const first = quadSite(), order = [first, ...['street', 'roof', 'canyon', 'tower'].filter((k) => k !== first)];
+    for (const site of order) {
+      if (site === 'street' || site === 'canyon') { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 120); a++) if (tryQuad(cands[a], site)) return true; }
+      else {
+        const tall = site === 'tower', b = tall ? [band[0] - 60, band[1] + 200] : band;
+        let pool = City.roofs.filter((R) => !R.garage && R.x1 - R.x0 > 10 && R.z1 - R.z0 > 10 && centreIn(R, b) && (tall ? R.y >= 75 && R.y <= 180 : R.y >= 12 && R.y < 75));
+        pool = tall ? highFirst(pool) : shuffled(pool);
+        for (let a = 0; a < Math.min(pool.length, 40); a++) if (tall ? tryQuadTower(pool[a]) : tryQuadRoof(pool[a], site)) return true;
+      }
+    }
+    return false;
   }
   function hide() { group.visible = false; S.alive = false; }
   function centroid(out) {
