@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>XACTO</title>
+<meta name="description" content="XACTO – a 1987-style thermal sniper arcade game with a guided round.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #000; --ink: #cfe; color-scheme: dark; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #000; --ink: #cfe; } }
+  :root[data-theme="dark"] { --bg: #000; --ink: #cfe; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; }
+  canvas#game { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; height: 100dvh; cursor: none; outline: none; }
+  #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 16px; color: var(--ink); font: 16px/1.5 monospace; text-align: center; background: var(--bg); }
+</style>
+<script>
+  // inside an iframe the first click must also give the page keyboard focus
+  window.addEventListener('pointerdown', function () { try { window.focus(); } catch (err) { /* ignore */ } }, true);
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('err');
+    if (el && !document.getElementById('game')) { el.style.display = 'flex'; el.textContent = 'XACTO needs a browser with WebGL 2. (' + (e.message || 'error') + ')'; }
+  });
+</script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }</script>
+</head>
+<body>
+<div id="err"></div>
+<script type="module">
+/*__SRC__*/
+</script>
+</body>
+</html>
