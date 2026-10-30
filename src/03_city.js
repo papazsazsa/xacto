@@ -393,7 +393,7 @@ const City = (() => {
     else if (h > 90 && top < prof.heli + 0.25) kind = 'heli';
     else if (h > 70 && top < 0.12) kind = 'stepped';
     let tiers = 1; if (h > 75 && crnd() < (style === 10 ? 0.95 : 0.7)) tiers++; if (h > 150 && crnd() < 0.75) tiers++;
-    if (hero) tiers = 3;
+    if (hero) tiers = hero.tiers || 3;
     let y = 0, bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1;
     for (let i = 0; i < tiers; i++) {
       const last = i === tiers - 1;
@@ -903,7 +903,7 @@ const City = (() => {
     return p;
   }
 
-  function generate(seed) {
+  function generate(seed, opts = {}) {
     // hash the seed first: consecutive stage seeds must not give correlated sectors
     let hs = Math.imul((seed >>> 0) ^ 0x9e3779b9, 0x85ebca6b); hs ^= hs >>> 13; hs = Math.imul(hs, 0xc2b2ae35); hs ^= hs >>> 16;
     reseedCity(hs >>> 0); info.seed = seed;
@@ -930,6 +930,7 @@ const City = (() => {
       const kind = kinds[i];
       heroes.push({ x: hx, z: hz, h: (i === 0 ? crnd(300, 360) : crnd(230, 290)) * Math.min(1.15, prof.height), kind, style: kind === 'crown' ? 10 : kind === 'spire' ? 0 : crnd() < 0.5 ? 0 : 2, done: false });
     }
+
     const ind = [(crnd() < 0.5 ? -1 : 1) * crnd(420, 760), -crnd(500, 2300), crnd(220, 330)];
     indus = prof.industrial ? (x, z) => Math.exp(-((x - ind[0]) ** 2 + (z - ind[1]) ** 2) / (2 * ind[2] * ind[2])) : () => 0;
     density = (x, z) => {
@@ -951,6 +952,17 @@ const City = (() => {
       const zHi = -k * GRID.stSp - GRID.stHW - GRID.sw, zLo = -(k + 1) * GRID.stSp + GRID.stHW + GRID.sw;
       const xLo = j === 0 ? GRID.mainHW + GRID.sw : -GRID.aveSp + GRID.aveHW + GRID.sw, xHi = j === 0 ? GRID.aveSp - GRID.aveHW - GRID.sw : -GRID.mainHW - GRID.sw;
       parks.push([xLo, zLo, xHi, zHi]);
+    }
+    // a helicopter stage: a few helipad towers in the shooter's view (in the blocks beside the main avenue, on
+    // whichever side is not a park)
+    if (opts.helipads) for (const d of [crnd(430, 520), crnd(580, 680), crnd(730, 830)]) {
+      const k = Math.floor((d - PLAYER.eye.z) / GRID.stSp), hz = -k * GRID.stSp - GRID.stSp / 2;
+      for (const sd of crnd() < 0.5 ? [-1, 1] : [1, -1]) {
+        const hx = sd * GRID.aveSp / 2;
+        if (parks.some((P) => hx > P[0] && hx < P[2] && hz > P[1] && hz < P[3])) continue;
+        heroes.push({ x: hx, z: hz, h: crnd(100, 150), kind: 'heli', style: crnd() < 0.5 ? 0 : 2, tiers: 1, done: false });
+        break;
+      }
     }
     const pu = [mats.ground.uniforms.uPark0.value, mats.ground.uniforms.uPark1.value];
     pu.forEach((v, i) => (parks[i] ? v.set(...parks[i]) : v.set(1, 1, 0, 0)));

@@ -1624,7 +1624,7 @@ const City = (() => {
     else if (h > 90 && top < prof.heli + 0.25) kind = 'heli';
     else if (h > 70 && top < 0.12) kind = 'stepped';
     let tiers = 1; if (h > 75 && crnd() < (style === 10 ? 0.95 : 0.7)) tiers++; if (h > 150 && crnd() < 0.75) tiers++;
-    if (hero) tiers = 3;
+    if (hero) tiers = hero.tiers || 3;
     let y = 0, bx0 = x0, bx1 = x1, bz0 = z0, bz1 = z1;
     for (let i = 0; i < tiers; i++) {
       const last = i === tiers - 1;
@@ -2134,7 +2134,7 @@ const City = (() => {
     return p;
   }
 
-  function generate(seed) {
+  function generate(seed, opts = {}) {
     // hash the seed first: consecutive stage seeds must not give correlated sectors
     let hs = Math.imul((seed >>> 0) ^ 0x9e3779b9, 0x85ebca6b); hs ^= hs >>> 13; hs = Math.imul(hs, 0xc2b2ae35); hs ^= hs >>> 16;
     reseedCity(hs >>> 0); info.seed = seed;
@@ -2161,6 +2161,7 @@ const City = (() => {
       const kind = kinds[i];
       heroes.push({ x: hx, z: hz, h: (i === 0 ? crnd(300, 360) : crnd(230, 290)) * Math.min(1.15, prof.height), kind, style: kind === 'crown' ? 10 : kind === 'spire' ? 0 : crnd() < 0.5 ? 0 : 2, done: false });
     }
+
     const ind = [(crnd() < 0.5 ? -1 : 1) * crnd(420, 760), -crnd(500, 2300), crnd(220, 330)];
     indus = prof.industrial ? (x, z) => Math.exp(-((x - ind[0]) ** 2 + (z - ind[1]) ** 2) / (2 * ind[2] * ind[2])) : () => 0;
     density = (x, z) => {
@@ -2182,6 +2183,17 @@ const City = (() => {
       const zHi = -k * GRID.stSp - GRID.stHW - GRID.sw, zLo = -(k + 1) * GRID.stSp + GRID.stHW + GRID.sw;
       const xLo = j === 0 ? GRID.mainHW + GRID.sw : -GRID.aveSp + GRID.aveHW + GRID.sw, xHi = j === 0 ? GRID.aveSp - GRID.aveHW - GRID.sw : -GRID.mainHW - GRID.sw;
       parks.push([xLo, zLo, xHi, zHi]);
+    }
+    // a helicopter stage: a few helipad towers in the shooter's view (in the blocks beside the main avenue, on
+    // whichever side is not a park)
+    if (opts.helipads) for (const d of [crnd(430, 520), crnd(580, 680), crnd(730, 830)]) {
+      const k = Math.floor((d - PLAYER.eye.z) / GRID.stSp), hz = -k * GRID.stSp - GRID.stSp / 2;
+      for (const sd of crnd() < 0.5 ? [-1, 1] : [1, -1]) {
+        const hx = sd * GRID.aveSp / 2;
+        if (parks.some((P) => hx > P[0] && hx < P[2] && hz > P[1] && hz < P[3])) continue;
+        heroes.push({ x: hx, z: hz, h: crnd(100, 150), kind: 'heli', style: crnd() < 0.5 ? 0 : 2, tiers: 1, done: false });
+        break;
+      }
     }
     const pu = [mats.ground.uniforms.uPark0.value, mats.ground.uniforms.uPark1.value];
     pu.forEach((v, i) => (parks[i] ? v.set(...parks[i]) : v.set(1, 1, 0, 0)));
@@ -3843,35 +3855,19 @@ void main(){
     }
     return false;
   }
-  // ---- the helicopter (stage 10): on a tower's helipad in view; with none in view, on a helipad painted on a
-  // big tall roof. The rotor has room to turn and there is open sky above it.
+  // ---- the helicopter (stages 10, 20, 30): on the helipad of a tower in view (those stages' cities are built
+  // with helipad towers in range). The rotor has room to turn and there is open sky above it.
   function spawnHeli() {
-    for (const band of [[350, 950], [250, 1150]]) {
-      for (const R of shuffled(City.roofs.filter((R) => R.heli && centreIn(R, band)))) if (tryHeli(R, R.heli, false)) return true;
-    }
-    // no helipad in view: paint one on a clear stretch of a big tall roof
-    const pool = highFirst(City.roofs.filter((R) => !R.garage && !R.heli && R.y >= 30 && R.y <= 190 && R.x1 - R.x0 > 16 && R.z1 - R.z0 > 16 && centreIn(R, [250, 1100])));
-    for (const R of pool.slice(0, 30)) for (let k = 0; k < 6; k++) {
-      const s = 14, x = grnd(R.x0 + s / 2 + 1.5, R.x1 - s / 2 - 1.5), z = grnd(R.z0 + s / 2 + 1.5, R.z1 - s / 2 - 1.5);
-      if (!R.occ.every((o) => o[2] < x - s / 2 - 0.5 || o[0] > x + s / 2 + 0.5 || o[3] < z - s / 2 - 0.5 || o[1] > z + s / 2 + 0.5)) continue;
-      if (tryHeli(R, { x, z, y: R.y + 1.0, s }, true)) return true;
-    }
-    // still nothing: build a raised helideck on a roof, its deck just over whatever plant stands up there
-    const pool2 = highFirst(City.roofs.filter((R) => !R.garage && R.y >= 15 && R.y <= 200 && R.x1 - R.x0 >= 14 && R.z1 - R.z0 >= 14 && centreIn(R, [230, 1200])));
-    for (const R of pool2.slice(0, 60)) for (let k = 0; k < 4; k++) {
-      const s = 13, x = grnd(R.x0 + s / 2 + 0.3, R.x1 - s / 2 - 0.3), z = grnd(R.z0 + s / 2 + 0.3, R.z1 - s / 2 - 0.3);
-      let top = R.y + 1.4;
-      City.forBoxesNear(x, z, s, (b) => { if (b.x1 > x - s / 2 && b.x0 < x + s / 2 && b.z1 > z - s / 2 && b.z0 < z + s / 2 && b.y0 < R.y + 14 && b.y1 > top && b.y1 < R.y + 14) top = b.y1; });
-      if (tryHeli(R, { x, z, y: top + 0.6, s }, true)) return true;
+    for (const band of [[350, 950], [230, 1200]]) {
+      for (const R of shuffled(City.roofs.filter((R) => R.heli && centreIn(R, band)))) if (tryHeli(R, R.heli)) return true;
     }
     return false;
   }
-  function tryHeli(R, pad, paint) {
+  function tryHeli(R, pad) {
     const y = pad.y;
     if (!boxFree([pad.x - 6.2, y + 0.2, pad.z - 6.2, pad.x + 6.2, y + 5, pad.z + 6.2], null)) return nope('hhBox');
     if (City.raycast(_hs.set(pad.x, y + 5, pad.z), _up, 120)) return nope('hhSky');
     const gate = gateFor(pad.x, y + 1.5, pad.z); if (!gate) return nope('hhGate');
-    if (paint) City.addCover([[pad.x - pad.s / 2, R.y, pad.z - pad.s / 2, pad.x + pad.s / 2, y, pad.z + pad.s / 2, 9]]);
     rigSpawn('heli', pad.x, y, pad.z, grnd(0, TAU));
     S.roof = R; S.spot = { kind: 'heli', gate, glass: [] };
     refreshSpot();
@@ -7448,7 +7444,7 @@ function difficulty(stage) {
   };
 }
 function newStage() {
-  const info = City.generate(newSeed());
+  const info = City.generate(newSeed(), { helipads: G.stage % 10 === 0 && !G.demo });   // the helicopter stages get helipad towers
   G.sector = info.sector || '';
   FX.clear(); Bullet.clearTrail(); Bullet.hideRound();
   G.diff = difficulty(G.stage);

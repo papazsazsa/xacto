@@ -1015,35 +1015,19 @@ void main(){
     }
     return false;
   }
-  // ---- the helicopter (stage 10): on a tower's helipad in view; with none in view, on a helipad painted on a
-  // big tall roof. The rotor has room to turn and there is open sky above it.
+  // ---- the helicopter (stages 10, 20, 30): on the helipad of a tower in view (those stages' cities are built
+  // with helipad towers in range). The rotor has room to turn and there is open sky above it.
   function spawnHeli() {
-    for (const band of [[350, 950], [250, 1150]]) {
-      for (const R of shuffled(City.roofs.filter((R) => R.heli && centreIn(R, band)))) if (tryHeli(R, R.heli, false)) return true;
-    }
-    // no helipad in view: paint one on a clear stretch of a big tall roof
-    const pool = highFirst(City.roofs.filter((R) => !R.garage && !R.heli && R.y >= 30 && R.y <= 190 && R.x1 - R.x0 > 16 && R.z1 - R.z0 > 16 && centreIn(R, [250, 1100])));
-    for (const R of pool.slice(0, 30)) for (let k = 0; k < 6; k++) {
-      const s = 14, x = grnd(R.x0 + s / 2 + 1.5, R.x1 - s / 2 - 1.5), z = grnd(R.z0 + s / 2 + 1.5, R.z1 - s / 2 - 1.5);
-      if (!R.occ.every((o) => o[2] < x - s / 2 - 0.5 || o[0] > x + s / 2 + 0.5 || o[3] < z - s / 2 - 0.5 || o[1] > z + s / 2 + 0.5)) continue;
-      if (tryHeli(R, { x, z, y: R.y + 1.0, s }, true)) return true;
-    }
-    // still nothing: build a raised helideck on a roof, its deck just over whatever plant stands up there
-    const pool2 = highFirst(City.roofs.filter((R) => !R.garage && R.y >= 15 && R.y <= 200 && R.x1 - R.x0 >= 14 && R.z1 - R.z0 >= 14 && centreIn(R, [230, 1200])));
-    for (const R of pool2.slice(0, 60)) for (let k = 0; k < 4; k++) {
-      const s = 13, x = grnd(R.x0 + s / 2 + 0.3, R.x1 - s / 2 - 0.3), z = grnd(R.z0 + s / 2 + 0.3, R.z1 - s / 2 - 0.3);
-      let top = R.y + 1.4;
-      City.forBoxesNear(x, z, s, (b) => { if (b.x1 > x - s / 2 && b.x0 < x + s / 2 && b.z1 > z - s / 2 && b.z0 < z + s / 2 && b.y0 < R.y + 14 && b.y1 > top && b.y1 < R.y + 14) top = b.y1; });
-      if (tryHeli(R, { x, z, y: top + 0.6, s }, true)) return true;
+    for (const band of [[350, 950], [230, 1200]]) {
+      for (const R of shuffled(City.roofs.filter((R) => R.heli && centreIn(R, band)))) if (tryHeli(R, R.heli)) return true;
     }
     return false;
   }
-  function tryHeli(R, pad, paint) {
+  function tryHeli(R, pad) {
     const y = pad.y;
     if (!boxFree([pad.x - 6.2, y + 0.2, pad.z - 6.2, pad.x + 6.2, y + 5, pad.z + 6.2], null)) return nope('hhBox');
     if (City.raycast(_hs.set(pad.x, y + 5, pad.z), _up, 120)) return nope('hhSky');
     const gate = gateFor(pad.x, y + 1.5, pad.z); if (!gate) return nope('hhGate');
-    if (paint) City.addCover([[pad.x - pad.s / 2, R.y, pad.z - pad.s / 2, pad.x + pad.s / 2, y, pad.z + pad.s / 2, 9]]);
     rigSpawn('heli', pad.x, y, pad.z, grnd(0, TAU));
     S.roof = R; S.spot = { kind: 'heli', gate, glass: [] };
     refreshSpot();

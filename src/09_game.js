@@ -137,7 +137,7 @@ function difficulty(stage) {
   };
 }
 function newStage() {
-  const info = City.generate(newSeed());
+  const info = City.generate(newSeed(), { helipads: G.stage % 10 === 0 && !G.demo });   // the helicopter stages get helipad towers
   G.sector = info.sector || '';
   FX.clear(); Bullet.clearTrail(); Bullet.hideRound();
   G.diff = difficulty(G.stage);
