@@ -971,7 +971,9 @@ void main(){
       if (want === 'ledge' || !roofsOnly()) { if ((want === 'tower' ? spawnLedge : spawnTower)(stage)) return true; }
     }
     const base = want === 'tower' || want === 'ledge' ? 'roof' : want;
-    const order = roofsOnly() && !opts.kind ? ['roof'] : [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];   // (phones: roofs only)
+    // (phones: a man only ever on a roof; the technicals and drones as everywhere, with a roof as their fallback)
+    const man = ['roof', 'street', 'awning'].includes(base);
+    const order = roofsOnly() && !opts.kind ? (man ? ['roof'] : [base, 'roof']) : [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
     const bands = [first, [first[0] - 120, first[1] + 120], widest];
     for (let bi = 0; bi < bands.length; bi++) {
