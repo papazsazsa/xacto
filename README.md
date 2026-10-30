@@ -6,10 +6,7 @@ An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-s
 
 ## Play
 
-1. Web (desktop browsers): https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV
-2. Mobile (phones and tablets): https://claude.ai/artifact/VAyEH7qNHX4P3jLnwbpEys
-
-Both pages are built from the same source. The web page also switches to touch controls by itself on a touch screen. The mobile page always uses the touch layout and renders the drone feed at a third of the frame rate to save battery.
+https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV – one page for every device. On a phone or tablet it switches to touch controls by itself, renders at a lower resolution and refreshes the drone feed at a third of the frame rate to save battery.
 
 Touch controls: drag to aim, tap FIRE to shoot. In flight, drag to move the marker, or tap the target to lock the round onto him. The II button opens pause, sensor mode and sound.
 
@@ -17,8 +14,8 @@ Touch controls: drag to aim, tap FIRE to shoot. In flight, drag to move the mark
 
 | File | What it is |
 | --- | --- |
-| `dist/xacto_web.html` | Web page, published to the web link |
-| `dist/xacto_mobile.html` | Mobile page (touch layout forced on), published to the mobile link |
+| `dist/xacto_web.html` | The published page (all devices) |
+| `dist/xacto_mobile.html` | Same page with the touch layout forced on, for testing on desktop |
 | `dist/xacto.html` | Plain build output for local testing |
 | `baseline/xacto_v*.html` | Earlier versions, kept for reference |
 
