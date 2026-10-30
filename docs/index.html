@@ -5805,42 +5805,33 @@ const Hud = (() => {
   }
 
   // ---- scope -----------------------------------------------------------------
-  // fire mission: a mortar sight's mil scales (etched dark lines, no posts). A long deflection scale across
-  // the middle with ticks hanging below it and numbers under the long ones; an elevation scale up and down
-  // the middle with ticks and numbers to its right; a short base bar at the foot.
+  // fire mission: the M3 binocular reticle used by mortar crews (fine dark lines, set low and to the right
+  // like the original). A horizontal mil scale through the aim point, 5..1 | 1..5 (in hundreds of mils), with a
+  // centre mark below it and two dashes above; a column of four dashes over its left end; and off to the right
+  // a separate vertical scale with end caps, tick marks and the numbers 5, 10, 15.
   function mortarReticle(cx, cy, R) {
-    const half = R * 0.74, step = half / 20, top = R * 0.72, foot = R * 0.66;
-    const thin = Math.max(1, 1.2 * u);
+    const U = R * 0.134, xv = cx + 3.05 * U, thin = Math.max(1, 1.5 * u);
+    const dash = (x, y, l) => { ctx.moveTo(x - l / 2, y); ctx.lineTo(x + l / 2, y); };
     for (let pass = 0; pass < 2; pass++) {
       const halo = pass === 0, ex = halo ? 1.4 * u : 0, col = halo ? 'rgba(255,0,0,0.14)' : DK;
-      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineCap = 'butt'; ctx.lineWidth = thin + 2 * ex; ctx.beginPath();
-      // deflection scale
-      ctx.moveTo(cx - half, cy); ctx.lineTo(cx + half, cy);
-      for (let i = -20; i <= 20; i++) {
-        if (!i) continue;
-        const x = cx + i * step, l = (i % 5 === 0 ? 9 : 4.5) * u + ex;
-        ctx.moveTo(x, cy - ex); ctx.lineTo(x, cy + l);
-      }
-      // elevation scale
-      ctx.moveTo(cx, cy - top); ctx.lineTo(cx, cy + foot);
-      for (let i = -20; i <= 18; i++) {
-        if (!i) continue;
-        const y = cy + i * step * 0.9, l = (i % 5 === 0 ? 9 : 4.5) * u + ex;
-        if (y < cy - top || y > cy + foot) continue;
-        ctx.moveTo(cx - ex, y); ctx.lineTo(cx + l, y);
-      }
+      ctx.strokeStyle = col; ctx.lineCap = 'butt'; ctx.lineWidth = thin + 2 * ex; ctx.beginPath();
+      // horizontal scale, broken where the vertical scale crosses it
+      ctx.moveTo(cx - 5 * U, cy); ctx.lineTo(xv - 0.28 * U, cy); ctx.moveTo(xv + 0.28 * U, cy); ctx.lineTo(cx + 5 * U, cy);
+      for (let i = -5; i <= 5; i++) { if (!i || i === 3) continue; const x = cx + i * U; ctx.moveTo(x, cy + ex); ctx.lineTo(x, cy - 0.3 * U - ex); }
+      ctx.moveTo(cx, cy - ex); ctx.lineTo(cx, cy + 0.55 * U + ex);                                   // centre mark, below
+      dash(cx, cy - 0.34 * U, 0.55 * U + 2 * ex); dash(cx, cy - 0.86 * U, 0.55 * U + 2 * ex);          // two dashes above
+      for (const y of [0.34, 0.82, 1.34, 1.87]) dash(cx - 5 * U, cy - y * U, 0.62 * U + 2 * ex);       // left column
+      // vertical scale with end caps; ticks to the right, longer at 5, 10, 15
+      const top = cy - 5.2 * U, bot = cy + 1.9 * U;
+      ctx.moveTo(xv, top); ctx.lineTo(xv, cy - 0.28 * U); ctx.moveTo(xv, cy + 0.28 * U); ctx.lineTo(xv, bot);
+      ctx.moveTo(xv - ex, top); ctx.lineTo(xv + 0.55 * U + ex, top); ctx.moveTo(xv - ex, bot); ctx.lineTo(xv + 0.55 * U + ex, bot);
+      for (const [y, l] of [[-5.0, 0.25], [-4.85, 0.25], [-4.7, 0.42], [-4.33, 0.25], [-4.0, 0.25], [-3.66, 0.42], [-3.15, 0.25], [-2.65, 0.25], [-2.15, 0.25], [-1.64, 0.42], [-1.1, 0.25], [-0.6, 0.25], [0.55, 0.25], [1.0, 0.25]])
+        { ctx.moveTo(xv - ex, cy + y * U); ctx.lineTo(xv + l * U + ex, cy + y * U); }
       ctx.stroke();
-      // base bar at the foot of the elevation scale
-      ctx.fillRect(Math.round(cx - 22 * u - ex), Math.round(cy + foot), Math.round(44 * u + 2 * ex), Math.round(4 * u + ex));
     }
-    // the numbers, dark like the etching: every fifth tick, in tens of mils
-    for (let i = 5; i <= 20; i += 5) {
-      const n = String(i * 2);
-      for (const sg of [-1, 1]) txt(n, cx + sg * i * step, cy + 22 * u, 8, 'center', FA, DK);
-      const yU = cy - i * step * 0.9, yD = cy + i * step * 0.9;
-      if (yU > cy - top + 6 * u) txt(n, cx + 14 * u, yU, 8, 'left', FA, DK);
-      if (yD < cy + foot - 6 * u) txt(n, cx + 14 * u, yD, 8, 'left', FA, DK);
-    }
+    // the numbers, dark like the etching
+    for (let i = -5; i <= 5; i++) { if (!i || i === 3) continue; txt(String(Math.abs(i)), cx + i * U, cy + 0.42 * U, 8, 'center', FA, DK); }
+    for (const [y, n] of [[-4.7, '5'], [-3.66, '10'], [-1.64, '15']]) txt(n, xv + 0.72 * U, cy + y * U, 8, 'left', FA, DK);
   }
   function reticle(cx, cy, R) {
     const post = R * 0.6, step = post / 6, gap = step * 0.16;
@@ -5995,8 +5986,8 @@ const Hud = (() => {
     if (G.state === 'aim') plated(`LOCKED ${L.length} OF 3   ${touch ? 'TAP A TARGET' : 'CROSSHAIRS ON A TARGET, CLICK'}`, W / 2, H - 70 * u, 8, 'center', FA, BR, 0.8);
     // the mortar crew's calls: hang the round over the muzzle, then fire
     if (G.state === 'mload') {
-      if (G.stateT < 1.0) plated('HANG IT!', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
-      else if (blinkLong()) plated(touch ? 'TAP TO FIRE!' : 'CLICK TO FIRE!', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+      if (G.stateT < 2.0) { if (blink(2.5)) plated('HANG IT...', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85); }
+      else plated('FIRE!', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
     }
   }
   // fire mission in flight: the brackets on the trucks and a title
@@ -7849,7 +7840,7 @@ function tick(rdt) {
     }
     case 'mload':   // fire mission: loaded; tap (or click, space) to fire
       updateAim(rdt);
-      if (G.stateT > 1.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT!
+      if (G.stateT > 2.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT...
       break;
     case 'mflight': {   // fire mission: ride the bomb up, the cones down, watch the trucks go
       gdt = rdt * Mortar.ts();

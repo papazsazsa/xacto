@@ -1020,7 +1020,7 @@ function tick(rdt) {
     }
     case 'mload':   // fire mission: loaded; tap (or click, space) to fire
       updateAim(rdt);
-      if (G.stateT > 1.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT!
+      if (G.stateT > 2.0 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }   // after HANG IT...
       break;
     case 'mflight': {   // fire mission: ride the bomb up, the cones down, watch the trucks go
       gdt = rdt * Mortar.ts();
