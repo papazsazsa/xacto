@@ -5921,12 +5921,13 @@ const Hud = (() => {
       else if (G.pathBlock >= 0 && G.blockScreen.vis) { if (blink(3)) plated('COURSE BLOCKED', W / 2, sy, 16, 'center'); }
       if (B.depleted && blink(3)) plated('STEERING BUDGET EMPTY', W / 2, H - 232 * u, 8, 'center');
     }
-    // steering budget gauge (left) on a backing strip; slides off to the left while the bracket overlaps it
-    const frac = B.budget / Math.max(1e-6, B.budget0), gx = 44 * u, gh = Math.min(H * 0.36, 250 * u), gy = cy - gh / 2;
+    // steering budget gauge (left); slides off to the left while the bracket overlaps it. Desktop: on a backing
+    // strip at mid height. Touch: no backing, up high, clear of where the thumbs rest
+    const frac = B.budget / Math.max(1e-6, B.budget0), gx = 44 * u, gh = touch ? Math.min(H * 0.3, 130 * u) : Math.min(H * 0.36, 250 * u), gy = touch ? 190 * u : cy - gh / 2;
     const gw = tw('STEERING', 8) + 20 * u;
     slideL = damp(slideL, hits(gx - 10 * u, gy - 60 * u, gw, gh + 100 * u) ? 1 : 0, 10, dt);
     ctx.save(); ctx.translate(-Math.round(slideL * (gw + 60 * u)), 0);
-    plate(gx - 10 * u, gy - 60 * u, gw, gh + 100 * u, 0.55);
+    if (!touch) plate(gx - 10 * u, gy - 60 * u, gw, gh + 100 * u, 0.55);
     txt('STEERING', gx, gy - 42 * u, 8, 'left', FA, BR); txt('BUDGET', gx, gy - 19 * u, 8, 'left', FA, BR);
     const n = 16, sg = gh / n;
     for (let i = 0; i < n; i++) {
@@ -5935,16 +5936,16 @@ const Hud = (() => {
       ctx.fillRect(Math.round(gx), Math.round(yy + 1 * u), Math.round(18 * u), Math.max(1, Math.round(sg - 3 * u)));
     }
     // glancing ricochets left on this round (three to start)
-    { const ry = gy + gh + 50 * u; plate(gx - 10 * u, ry, gw, 50 * u, 0.55);
+    { const ry = gy + gh + 50 * u; if (!touch) plate(gx - 10 * u, ry, gw, 50 * u, 0.55);
       txt('RICOCHETS', gx, ry + 16 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); txt(B.ricochets > 0 ? `${B.ricochets} LEFT` : 'NONE LEFT', gx, ry + 36 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); }
     txt(`${Math.round(frac * 100)}%`, gx, gy + gh + 22 * u, 16, 'left');
     ctx.restore();
-    // speed tape (right) on a narrow translucent strip, value and unit inside one box;
-    // slides fully off to the right while the bracket overlaps it
-    const v = B.v.length(), tx0 = W - 44 * u, th = gh, ty0 = cy;
+    // speed tape (right), value and unit inside one box; slides fully off to the right while the bracket
+    // overlaps it. Desktop: on a narrow translucent strip at mid height. Touch: no strip, up high
+    const v = B.v.length(), tx0 = W - 44 * u, th = gh, ty0 = touch ? gy + th / 2 : cy;
     slideR = damp(slideR, hits(tx0 - 106 * u, gy - 52 * u, 116 * u, gh + 92 * u) ? 1 : 0, 10, dt);
     ctx.save(); ctx.translate(Math.round(slideR * 180 * u), 0);
-    plate(tx0 - 106 * u, gy - 52 * u, 116 * u, gh + 92 * u, 0.55);
+    if (!touch) plate(tx0 - 106 * u, gy - 52 * u, 116 * u, gh + 92 * u, 0.55);
     txt('SPEED', tx0, gy - 26 * u, 8, 'right', FA, DIM);
     ctx.save(); ctx.beginPath(); ctx.rect(tx0 - 100 * u, gy, 100 * u, th); ctx.clip();
     const pxPer = th / 200;
@@ -5962,19 +5963,14 @@ const Hud = (() => {
     const vw = txt(String(Math.round(v)), bx + 7 * u, ty0, 28, 'left', FB, BR);
     txt('M/S', bx + 12 * u + vw, ty0 + 3 * u, 8, 'left', FA, DIM);
     ctx.restore();
-    // bottom strip: time to impact, steer stick, slow-motion factor (range lives on the bracket tag only)
+    // bottom strip: time to impact and the slow-motion factor (range lives on the bracket tag only)
     const by = H - 64 * u;
-    ctx.globalAlpha = fadeFor(W / 2 - 230 * u, by - 34 * u, 460 * u, 80 * u);
-    plate(W / 2 - 230 * u, by - 34 * u, 460 * u, 80 * u, 0.6);
-    txt('TIME TO IMPACT', W / 2 - 150 * u, by - 18 * u, 8, 'center', FA, DIM);
-    txt(`${G.tti.toFixed(2)} S`, W / 2 - 150 * u, by + 10 * u, 32, 'center', FB);
-    txt('SLOW MOTION', W / 2 + 150 * u, by - 18 * u, 8, 'center', FA, DIM);
-    txt(`${G.timeScale.toFixed(2)}X`, W / 2 + 150 * u, by + 10 * u, 32, 'center', FB);
-    const sx = W / 2, sy2 = by, sr2 = 26 * u;
-    ctx.strokeStyle = DIM; ctx.lineWidth = Math.max(1, 1.2 * u); ctx.beginPath(); ctx.arc(sx, sy2, sr2, 0, TAU); ctx.stroke();
-    line(sx - sr2, sy2, sx + sr2, sy2, 0.8, FAINT); line(sx, sy2 - sr2, sx, sy2 + sr2, 0.8, FAINT);
-    ctx.fillStyle = BR; ctx.beginPath(); ctx.arc(sx + G.stick.x * sr2, sy2 - G.stick.y * sr2, 4.5 * u, 0, TAU); ctx.fill();
-    txt('STEER', sx, sy2 + sr2 + 12 * u, 8, 'center', FA, DIM);
+    ctx.globalAlpha = fadeFor(W / 2 - 180 * u, by - 34 * u, 360 * u, 80 * u);
+    plate(W / 2 - 180 * u, by - 34 * u, 360 * u, 80 * u, 0.6);
+    txt('TIME TO IMPACT', W / 2 - 95 * u, by - 18 * u, 8, 'center', FA, DIM);
+    txt(`${G.tti.toFixed(2)} S`, W / 2 - 95 * u, by + 10 * u, 32, 'center', FB);
+    txt('SLOW MOTION', W / 2 + 95 * u, by - 18 * u, 8, 'center', FA, DIM);
+    txt(`${G.timeScale.toFixed(2)}X`, W / 2 + 95 * u, by + 10 * u, 32, 'center', FB);
     ctx.globalAlpha = 1;
     drawTargetMarks();
     // pointing steer: off him the marker is a diamond waypoint the round flies to (never drawn over him);
