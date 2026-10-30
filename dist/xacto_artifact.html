@@ -5798,6 +5798,43 @@ const Hud = (() => {
   }
 
   // ---- scope -----------------------------------------------------------------
+  // fire mission: a mortar sight's mil scales (etched dark lines, no posts). A long deflection scale across
+  // the middle with ticks hanging below it and numbers under the long ones; an elevation scale up and down
+  // the middle with ticks and numbers to its right; a short base bar at the foot.
+  function mortarReticle(cx, cy, R) {
+    const half = R * 0.74, step = half / 20, top = R * 0.72, foot = R * 0.66;
+    const thin = Math.max(1, 1.2 * u);
+    for (let pass = 0; pass < 2; pass++) {
+      const halo = pass === 0, ex = halo ? 1.4 * u : 0, col = halo ? 'rgba(255,0,0,0.14)' : DK;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineCap = 'butt'; ctx.lineWidth = thin + 2 * ex; ctx.beginPath();
+      // deflection scale
+      ctx.moveTo(cx - half, cy); ctx.lineTo(cx + half, cy);
+      for (let i = -20; i <= 20; i++) {
+        if (!i) continue;
+        const x = cx + i * step, l = (i % 5 === 0 ? 9 : 4.5) * u + ex;
+        ctx.moveTo(x, cy - ex); ctx.lineTo(x, cy + l);
+      }
+      // elevation scale
+      ctx.moveTo(cx, cy - top); ctx.lineTo(cx, cy + foot);
+      for (let i = -20; i <= 18; i++) {
+        if (!i) continue;
+        const y = cy + i * step * 0.9, l = (i % 5 === 0 ? 9 : 4.5) * u + ex;
+        if (y < cy - top || y > cy + foot) continue;
+        ctx.moveTo(cx - ex, y); ctx.lineTo(cx + l, y);
+      }
+      ctx.stroke();
+      // base bar at the foot of the elevation scale
+      ctx.fillRect(Math.round(cx - 22 * u - ex), Math.round(cy + foot), Math.round(44 * u + 2 * ex), Math.round(4 * u + ex));
+    }
+    // the numbers, dark like the etching: every fifth tick, in tens of mils
+    for (let i = 5; i <= 20; i += 5) {
+      const n = String(i * 2);
+      for (const sg of [-1, 1]) txt(n, cx + sg * i * step, cy + 22 * u, 8, 'center', FA, DK);
+      const yU = cy - i * step * 0.9, yD = cy + i * step * 0.9;
+      if (yU > cy - top + 6 * u) txt(n, cx + 14 * u, yU, 8, 'left', FA, DK);
+      if (yD < cy + foot - 6 * u) txt(n, cx + 14 * u, yD, 8, 'left', FA, DK);
+    }
+  }
   function reticle(cx, cy, R) {
     const post = R * 0.6, step = post / 6, gap = step * 0.16;
     const thin = Math.max(1, 1.3 * u), thick = Math.max(3, 6.5 * u);
@@ -5884,21 +5921,21 @@ const Hud = (() => {
     const Rr = R * (0.08 + 0.92 * ir);
     if (ir > 0.3) rimTicks(cx, cy, Rr, (typeof Aim !== 'undefined' ? Aim.yaw : 0) * 3);
     ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip();
-    reticle(cx + G.reticleOff.x * H, cy - G.reticleOff.y * H, Rr);
+    (G.mission ? mortarReticle : reticle)(cx + G.reticleOff.x * H, cy - G.reticleOff.y * H, Rr);   // fire mission: the mortar sight
     ctx.restore();
     if (!portrait) {
       const bw = clamp(cx - R * 1.12 - 40 * u, 150 * u, 250 * u), bh = 84 * u;
       roundsPanel(G, cx - R * 1.12 - 20 * u - bw, cy - bh / 2, bw, bh);
       if (!G.demo) {
-        if (touch) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 20 * u);
-        else { txt('SPACE FIRE', 36 * u, H - 22 * u, 8, 'left', FA, DIM); txt('T SENSOR   P PAUSE', W - 36 * u, H - 22 * u, 8, 'right', FA, DIM); }
+        if (touch) { if (!G.mission) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 20 * u); }
+        else { if (!G.mission) txt('SPACE FIRE', 36 * u, H - 22 * u, 8, 'left', FA, DIM); txt('T SENSOR   P PAUSE', W - 36 * u, H - 22 * u, 8, 'right', FA, DIM); }
       }
       fireButton(G);
     } else {
       const bh = 70 * u, top = cy - R * 1.12, bot = cy + R * 1.12, bw = Math.min(W - 28 * u, 320 * u);
       roundsPanel(G, W / 2 - bw / 2, top - bh - 16 * u, bw, bh);
       fireButton(G, W / 2, Math.min(H - 80 * u, bot + 90 * u), 44 * u);
-      if (!G.demo) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 18 * u);
+      if (!G.demo && !G.mission) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 18 * u);
     }
     // target marker: open corners outside the man, tracking every frame, label on a dark plate
     // (hidden while the mission card is up, so nothing shows through it)
