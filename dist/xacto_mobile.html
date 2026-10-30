@@ -6609,6 +6609,7 @@ const Mortar = (() => {
     const vy = Math.sqrt(2 * GM * APEX); M.ta = vy / GM;
     const vh = 0.62 * L / M.ta;
     M.v0.set(dx / L * vh, vy, dz / L * vh);
+    M.apex = M.start.clone().addScaledVector(M.v0, M.ta); M.apex.y -= 0.5 * GM * M.ta * M.ta;
     M.phase = 'up'; M.t = 0; M.endT = 0; M.done = false;
     bomb.visible = true; for (const c of bombCones) c.visible = true;
     bombAt(0);
@@ -6736,8 +6737,17 @@ const Mortar = (() => {
   const camP = new THREE.Vector3(), camL = new THREE.Vector3(); let camInit = false, orbit = 0;
   function camera(rdt, cam) {
     const want = T1, look = T2;
-    let rigid = false;
-    if (M.phase === 'up' || (M.phase === 'down' && !M.cones.length)) {
+    let rigid = false, rate = 6;
+    const pre = M.phase === 'up' && M.t > M.ta - 1.4, post = M.phase === 'down' && M.t - M.splitT < 0.9;
+    if (pre || post) {
+      // the split shot: held out beside the top of the arc, about 15 m off, watching the nose open and the
+      // three cones peel apart
+      const f = T3.set(M.center.x - M.apex.x, 0, M.center.z - M.apex.z).normalize(), side = T4.crossVectors(f, UPV).normalize();
+      want.copy(M.apex).addScaledVector(f, -11).addScaledVector(side, 10).addScaledVector(UPV, 3.5);
+      if (post && M.cones.length) { look.set(0, 0, 0); for (const c of M.cones) look.add(c.p); look.multiplyScalar(1 / M.cones.length); }
+      else look.copy(bombP);
+      rate = 6;
+    } else if (M.phase === 'up' || (M.phase === 'down' && !M.cones.length)) {
       // behind and a little above the bomb, looking ahead and down over the city toward the targets, so the
       // bomb climbs through the bottom of the frame with the streets below
       const f = T3.set(M.center.x - bombP.x, 0, M.center.z - bombP.z).normalize(), side = T4.crossVectors(f, UPV).normalize();
@@ -6751,7 +6761,8 @@ const Mortar = (() => {
       bezD(c, Math.max(0.001, Math.pow(Math.min(1, c.t / c.D), 1.5)), T3).normalize();
       want.copy(c.p).addScaledVector(T3, -6).addScaledVector(UPV, 1.4);
       look.copy(M.center);
-      rigid = !c.hit;
+      // swing in from the split shot over half a second, then hold tight behind the cone
+      if (M.t - M.splitT < 1.5) rate = 7; else rigid = !c.hit;
     } else {
       orbit += rdt * 0.12;
       want.set(M.center.x + Math.sin(orbit) * 42, 26, M.center.z + 40 * Math.cos(orbit));
@@ -6763,7 +6774,7 @@ const Mortar = (() => {
     if (!camInit) { camP.copy(want); camL.copy(look); camInit = true; }
     // the chase views hold their place on the bomb or cone (no lag at 100 m/s); the look point and the
     // after-shot orbit ease in
-    const k = 1 - Math.exp(-6 * rdt);
+    const k = 1 - Math.exp(-rate * rdt);
     if (rigid) camP.copy(want); else camP.lerp(want, k);
     camL.lerp(look, 1 - Math.exp(-(rigid ? 12 : 6) * rdt));
     cam.position.copy(camP); cam.up.set(0, 1, 0); cam.lookAt(camL);
