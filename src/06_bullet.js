@@ -196,7 +196,7 @@ const Bullet = (() => {
     S.aMax = opt.aMax; S.tau = opt.tau; S.budget = S.budget0 = opt.budget;
     S.vc = opt.vc || 140; S.vMin = opt.vMin || Math.min(S.vc, 55); S.slowNear = opt.slowNear || 12; S.slowFar = opt.slowFar || 90; S.brakeT = opt.brakeT || 0.24; S.dash = opt.dash || 0; S.windK = opt.windK != null ? opt.windK : 1; S.bleed = opt.bleed != null ? opt.bleed : 0.12; S.deploy = 0;
     S.aCur.set(0, 0); S.cmd.set(0, 0); S.minDist = Infinity; S.travelled = 0; S.depleted = false;
-    S.ricochets = opt.ricochets != null ? opt.ricochets : 1; S.ricoNew = false; S.pvBounceK = -1; S.assistK = 1;
+    S.ricochets = opt.ricochets != null ? opt.ricochets : 3; S.ricoNew = false; S.pvBounceK = -1; S.assistK = 1;
     S.windMean.copy(opt.wind); S.wind.copy(opt.wind);
     gustX = new OU(1.6, opt.gust); gustZ = new OU(1.6, opt.gust * 0.6);
     S.basket = opt.basket || 0; S.homeT = opt.homeT || 0.5; S.homing = false;

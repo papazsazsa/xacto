@@ -1,12 +1,12 @@
 # XACTO – Ghost Soldier
 
-An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners to targets hidden behind cover, on rooftops, under awnings, inside rooms and in cars. A drone feed (MQ-DARC VIEW) in the scope shows targets you cannot see directly.
+An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners to targets hidden behind cover: men on rooftops, on sidewalks and under awnings, pickup technicals with a mounted machine gun, and hovering quadcopters. Missed once, a target is alerted: the man runs, the technical drives laps round its block, and the quadcopter rises and sinks. Each round can ricochet three times off glancing hits.
 
 © 1987 VALENTINE ARCADE (fictional).
 
 ## Play
 
-https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV – one page for every device. On a phone or tablet it switches to touch controls by itself, renders at a lower resolution and refreshes the drone feed at a third of the frame rate to save battery.
+https://claude.ai/artifact/Dcmu13BD3JLdtgfnVzyZnV – one page for every device. On a phone or tablet it switches to touch controls by itself and renders at a lower resolution to save battery.
 
 Touch controls: drag to aim, tap FIRE to shoot. In flight, drag to move the marker, or tap the target to lock the round onto him. The II button opens pause, sensor mode and sound.
 

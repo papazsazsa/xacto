@@ -722,6 +722,7 @@ void main(){
     return charBag.pop();
   }
   function spawn(stage, opts = {}) {
+    rigReset(); S.type = 'man';
     S.hide = null; S.app = null; S.alertT = 0; S.spot = null; S.wary = 0; S.base = null; S.evT = 0;
     S.char = opts.char || pickChar(); S.packGone = false;
     if (opts.hidden !== false && spawnHidden(stage, opts)) return true;
@@ -783,10 +784,10 @@ void main(){
     return null;
   }
   function rayLen(x, y, z, dx, dz, len) { _hdir.set(dx, 0, dz).normalize(); return City.raycast(_hs.set(x, y, z), _hdir, len) ? City.hit.t : len; }
-  // Spot types come out of a shuffled bag (no type twice in a row); windows and cars join from stage 3.
+  // Spot types come out of a shuffled bag (no type twice in a row); cars and quadcopters join from stage 3.
   let bag = [], lastKind = '';
   function hiddenKind(stage) {
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'window', 'car'];
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'car', 'quad'];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -831,69 +832,21 @@ void main(){
     }
     return shuffled(out);
   }
-  // ---- window target: a room cut into a building behind a framed window at some floor; he stands inside it.
-  // The building's drawn block is untouched: its collision is split around the room, and a depth mask over the
-  // opening lets the room show through once the glass is gone. The round has to come in level with that floor.
-  function tryWindow(band) {
-    const cands = shuffled(City.boxes.filter((b) => b.kind === 1 && !b.dead && b.y0 < 1 && b.y1 > 16 && inSector((b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, [band[0] - 30, band[1] + 30])));
-    for (let a = 0; a < Math.min(cands.length, 70); a++) {
-      const b = cands[a];
-      for (const [nx, nz] of shuffled([[1, 0], [-1, 0], [0, 1], [0, -1]])) {
-        const t0 = nx ? b.z0 : b.x0, t1 = nx ? b.z1 : b.x1; if (t1 - t0 < 11) continue;
-        const depthB = nx ? b.x1 - b.x0 : b.z1 - b.z0; if (depthB < 7.5) continue;
-        const fp = nx > 0 ? b.x1 : nx < 0 ? b.x0 : nz > 0 ? b.z1 : b.z0, tc = grnd(t0 + 4.5, t1 - 4.5);
-        const floors = Math.floor((Math.min(b.y1, 140) - 8) / 3.4); if (floors < 1) continue;
-        const yF = 3.6 + 3.4 * Math.floor(grnd(0, floors)), Hb = 3.0; if (yF + Hb + 2 > b.y1) continue;
-        const W2 = 2.2, D = 3.2, G2 = 2.0;   // room half-width, room depth, opening half-width
-        const bx = (dn0, dn1, dt0, dt1, y0, y1) => nx ? [Math.min(fp + nx * dn0, fp + nx * dn1), y0, tc + dt0, Math.max(fp + nx * dn0, fp + nx * dn1), y1, tc + dt1]
-          : [tc + dt0, y0, Math.min(fp + nz * dn0, fp + nz * dn1), tc + dt1, y1, Math.max(fp + nz * dn0, fp + nz * dn1)];
-        const pt = (dn, dt, y) => nx ? new THREE.Vector3(fp + nx * dn, y, tc + dt) : new THREE.Vector3(tc + dt, y, fp + nz * dn);
-        if (!boxFree(bx(-D, -0.05, -W2, W2, yF + 0.05, yF + Hb - 0.05), b)) { nope('hwRoom'); continue; }
-        if (!boxFree(bx(0.02, 1.2, -W2, W2, yF, yF + Hb), b)) { nope('hwFront'); continue; }
-        const win = pt(0.5, 0, yF + 1.3); if (!inSector(win.x, win.z, band)) continue;
-        let run = 1e9; for (const dt of [-1.3, 0, 1.3]) { const q = pt(0.3, dt, yF + 1.3); run = Math.min(run, rayLen(q.x, q.y, q.z, nx, nz, 40)); }
-        if (run < 40) { nope('hwRun'); continue; }
-        const gate = gateFor(win.x, win.y, win.z); if (!gate) { nope('hwGate'); continue; }
-        // collision: the building's block split around the room, plus the wall under and over the opening
-        b.dead = true;
-        const tLo = t0 - tc, tHi = t1 - tc;
-        for (const q of [bx(-depthB, 0, tLo, tHi, b.y0, yF), bx(-depthB, 0, tLo, tHi, yF + Hb, b.y1), bx(-depthB, 0, tLo, -W2, yF, yF + Hb), bx(-depthB, 0, W2, tHi, yF, yF + Hb),
-          bx(-depthB, -D, -W2, W2, yF, yF + Hb), bx(-0.3, 0, -W2, W2, yF, yF + 0.9), bx(-0.3, 0, -W2, W2, yF + 2.8, yF + Hb), bx(-0.3, 0.12, -W2, -G2, yF + 0.9, yF + 2.8), bx(-0.3, 0.12, G2, W2, yF + 0.9, yF + 2.8)])
-          City.addCol(q[0], q[1], q[2], q[3], q[4], q[5], 1);
-        // the room (drawn before the mask; a heated interior reads warmer than the facade), a desk at the back
-        for (const q of [bx(-D, 0, -W2, W2, yF - 0.05, yF), bx(-D, 0, -W2, W2, yF + Hb, yF + Hb + 0.05), bx(-D - 0.05, -D, -W2, W2, yF, yF + Hb), bx(-D, 0, -W2 - 0.05, -W2, yF, yF + Hb), bx(-D, 0, W2, W2 + 0.05, yF, yF + Hb)])
-          City.addProp(q, 0.45, false, -2);
-        City.addProp(bx(-D + 0.25, -D + 0.95, -1.0, 1.0, yF, yF + 0.75), 0.43, true, -2);
-        // the window: frame on the facade, the opening masked, the glass flush in it
-        for (const q of [bx(0, 0.18, -W2, W2, yF + 0.75, yF + 0.9), bx(0, 0.12, -W2, W2, yF + 2.8, yF + 3.0), bx(0, 0.12, -W2, -G2, yF + 0.9, yF + 2.8), bx(0, 0.12, G2, W2, yF + 0.9, yF + 2.8)])
-          City.addProp(q, 0.34, false);
-        const mc = pt(0.012, 0, yF + 1.85); City.addMask(mc.x, mc.y, mc.z, 2 * G2, 1.9, nx, nz);
-        const gid = City.addGlass(bx(0.0, 0.06, -G2, G2, yF + 0.9, yF + 2.8));
-        const m = pt(-D * 0.5, grnd(-0.7, 0.7), yF), rb = bx(-D + 0.45, -0.45, -W2 + 0.5, W2 - 0.5, yF, yF);
-        const R = { x0: rb[0], z0: rb[2], x1: rb[3], z1: rb[5], y: yF, h: yF, occ: [], room: true };
-        const beh = ['phone', 'smoke', 'patrol'][Math.floor(gameRand() * 3)];
-        place(R, beh, m.x, m.z, m.x, m.z, Math.atan2(nx, nz) + grnd(-0.5, 0.5), {});
-        S.spot = { kind: 'window', gate, glass: [gid], entry: pt(8, 0, yF + 1.3), entry2: pt(33, 0, yF + 1.3) };
-        return true;
-      }
-    }
-    return false;
-  }
-  // ---- car target: a parked car at the kerb, him in the driver's seat behind the glass
+  // ---- technical: a pickup with a machine gun, parked a metre off the kerb; the truck itself is the target (see "Car target" below)
   function carSpots(band) {
     const eye = PLAYER.eye, out = [], river = City.features.river, half = 26 * DEG;
     for (let k = 1; k < GRID.nSt; k++) {
       if (river && (k === river.k || k === river.k + 1)) continue;
       const zc = -k * GRID.stSp;
       for (const side of [-1, 1]) for (let i = 0; i < 6; i++) {
-        const z = zc + side * (GRID.stHW - 1.0), x = eye.x + grnd(-1, 1) * Math.tan(half) * (eye.z - z);
+        const z = zc + side * (GRID.stHW - 2.0), x = eye.x + grnd(-1, 1) * Math.tan(half) * (eye.z - z);
         if (inSector(x, z, band)) out.push({ x, z, ax: 1, az: 0 });
       }
     }
     for (let j = -GRID.nAve + 1; j < GRID.nAve; j++) {
       if (j === 0) continue;
       for (const side of [-1, 1]) for (let i = 0; i < 6; i++) {
-        const x = j * GRID.aveSp + side * (GRID.aveHW - 1.3), z = eye.z - grnd(band[0], band[1]);
+        const x = j * GRID.aveSp + side * (GRID.aveHW - 2.3), z = eye.z - grnd(band[0], band[1]);
         if (inSector(x, z, band)) out.push({ x, z, ax: 0, az: 1 });
       }
     }
@@ -906,25 +859,15 @@ void main(){
       return [Math.min(...xs), y0, Math.min(...zs), Math.max(...xs), y1, Math.max(...zs)];
     };
     if (!boxFree(cb(-2.5, 2.5, -1.15, 1.15, 0.02, 1.9), null)) return nope('hcBox');
-    // a clear run in along the street to one end of the car, at window height
-    const runF = rayLen(c.x + ax * 2.6, 1.3, c.z + az * 2.6, ax, az, 60), runB = rayLen(c.x - ax * 2.6, 1.3, c.z - az * 2.6, -ax, -az, 60);
+    // a clear run in along the street to one end of the car, at body height
+    const runF = rayLen(c.x + ax * 2.6, 0.9, c.z + az * 2.6, ax, az, 60), runB = rayLen(c.x - ax * 2.6, 0.9, c.z - az * 2.6, -ax, -az, 60);
     if (Math.max(runF, runB) < 42) return nope('hcRun');
     const dir = runF >= runB ? 1 : -1;
-    const gate = gateFor(c.x, 1.3, c.z); if (!gate) return nope('hcGate');
-    // body (hood warm from the engine), wheels, roof on four thin pillars, glass all round the cabin
-    City.addProp(cb(-2.2, 1.15, -0.92, 0.92, 0.3, 0.98), 0.3); City.addProp(cb(1.15, 2.2, -0.92, 0.92, 0.3, 0.98), 0.46);
-    for (const wa of [-1.4, 1.4]) for (const wl of [-0.8, 0.8]) City.addProp(cb(wa - 0.33, wa + 0.33, wl - 0.13, wl + 0.13, 0, 0.62), 0.24, false);
-    // roof: a frame round a glass sunroof (a way in from above)
-    for (const r of [cb(0.55, 1.05, -0.9, 0.9, 1.62, 1.72), cb(-0.95, -0.4, -0.9, 0.9, 1.62, 1.72), cb(-0.4, 0.55, -0.9, -0.62, 1.62, 1.72), cb(-0.4, 0.55, 0.62, 0.9, 1.62, 1.72)]) City.addProp(r, 0.28);
-    for (const pa of [-0.95, 1.05]) for (const pl of [-0.86, 0.86]) City.addProp(cb(pa - 0.04, pa + 0.04, pl - 0.04, pl + 0.04, 0.98, 1.62), 0.28);
-    const glass = [cb(-0.4, 0.55, -0.62, 0.62, 1.64, 1.7), cb(1.0, 1.06, -0.84, 0.84, 0.98, 1.62), cb(-0.98, -0.92, -0.84, 0.84, 0.98, 1.62), cb(-0.92, 1.0, -0.92, -0.86, 0.98, 1.62), cb(-0.92, 1.0, 0.86, 0.92, 0.98, 1.62)].map((g) => City.addGlass(g));
-    // the driver: seated (feet below the floor so only his upper body is above the body line)
-    const px = c.x + ax * 0.1 + lx * 0.4, pz = c.z + az * 0.1 + lz * 0.4, y0 = -0.27;
-    const R = { x0: c.x - 6, x1: c.x + 6, z0: c.z - 6, z1: c.z + 6, y: y0, h: y0, occ: [], car: true };
-    place(R, 'phone', px, pz, px, pz, Math.atan2(ax * dir, az * dir), {});
-    // the run-in: a shallow glide slope (about 3.5 degrees) that meets his chest through the glass
-    const ex = (d) => new THREE.Vector3(c.x + ax * dir * d, 1.05 + 0.062 * (d - 0.1), c.z + az * dir * d);
-    S.spot = { kind: 'car', gate, glass, entry: ex(9), entry2: ex(33) };
+    const gate = gateFor(c.x, 0.9, c.z); if (!gate) return nope('hcGate');
+    rigSpawn('car', c.x, 0, c.z, Math.atan2(ax * dir, az * dir));
+    // the run-in: a shallow glide down the street (above the kerbside clutter) into the truck's nose
+    const ex = (d) => new THREE.Vector3(c.x + ax * dir * d, 1.2 + 0.06 * d, c.z + az * dir * d);
+    S.spot = { kind: 'car', gate, glass: [], entry: ex(9), entry2: ex(33) };
     return true;
   }
   function tryStreet(c, kind, stage) {
@@ -988,15 +931,15 @@ void main(){
   }
   function spawnHidden(stage, opts) {
     S.stage = stage;
-    const want = opts.kind || hiddenKind(stage), order = [want, ...['street', 'awning', 'roof'].filter((k) => k !== want)];
+    const want = ['roof', 'street', 'awning', 'car', 'quad'].includes(opts.kind) ? opts.kind : hiddenKind(stage), order = [want, ...['street', 'awning', 'roof'].filter((k) => k !== want)];
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
     for (const band of [first, [first[0] - 120, first[1] + 120], widest]) {
       for (const kind of order) {
         if (kind === 'roof') {
           const pool = shuffled(City.roofs.filter((R) => inSector((R.x0 + R.x1) / 2, (R.z0 + R.z1) / 2, band) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y > 5 && R.y < 230));
           for (let a = 0; a < Math.min(pool.length, 90); a++) if (tryRoofHidden(pool[a], stage)) return true;
-        } else if (kind === 'window') { if (tryWindow(band)) return true; }
-        else if (kind === 'car') { const cands = carSpots(band); for (let a = 0; a < Math.min(cands.length, 80); a++) if (tryCar(cands[a])) return true; }
+        } else if (kind === 'car') { const cands = carSpots(band); for (let a = 0; a < Math.min(cands.length, 80); a++) if (tryCar(cands[a])) return true; }
+        else if (kind === 'quad') { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 120); a++) if (tryQuad(cands[a])) return true; }
         else { const cands = streetSpots(band); for (let a = 0; a < Math.min(cands.length, 160); a++) if (tryStreet(cands[a], kind, stage)) return true; }
         if (opts.kind) break;   // a requested kind: no substitutes
       }
@@ -1083,6 +1026,11 @@ void main(){
   function update(dt) {
     if (!group.visible) return;
     S.t += dt;
+    if (S.type !== 'man') {
+      if (S.alertT > 0 && S.alive) { S.alertT -= dt; if (S.alertT <= 0) { S.alertT = 0; rigAlert(); } }
+      if (S.alive) { rigMove(dt); rigPose(); } else rigDebris(dt);
+      return;
+    }
     if (S.alertT > 0 && S.alive && !S.ragdoll) {
       S.alertT -= dt;
       if (S.alertT <= 0) {
@@ -1116,14 +1064,12 @@ void main(){
   }
   // Missed once, he is on to you: for every shot after, a moment after he hears it he tries to get away.
   // Street and awning: sprints up and down his stretch of pavement (staying under the awning); roof: zigzags
-  // across it; window bay or car: ducks below the sill or the door line and bobs up now and then.
+  // across it; a car drives off along its street.
   function evade() {
+    if (S.type !== 'man') { rigAlert(); return; }
     if (!S.alive || S.ragdoll) return;
     const sp = S.spot, k = sp ? sp.kind : '';
     if (!S.base) S.base = { A: S.A.clone(), B: S.B.clone(), beh: S.behavior };
-    if (k === 'window' || k === 'car') {
-      S.spooked = true; S.atCover = true; S.spookT = 0.6; S.peeking = false; S.peekT = grnd(0.6, 1.3); S.cover.copy(S.root); return;
-    }
     S.spooked = false; S.beh = 'evade'; S.evT = grnd(0.4, 1.0);
     if ((k === 'street' || k === 'awning') && sp.ax != null) {
       const ext = k === 'awning' ? 1.8 : 3.5, A0 = S.base.A, B0 = S.base.B;
@@ -1143,11 +1089,12 @@ void main(){
   }
   // between shots he settles back to what he was doing (still wary: he will run again at the next shot)
   function calm() {
-    if (!S.alive || S.ragdoll) return;
+    if (!S.alive || S.ragdoll || S.type !== 'man') return;
     S.spooked = false; S.atCover = false; S.alertT = 0;
     if (S.base) { S.A.copy(S.base.A); S.B.copy(S.base.B); S.beh = S.base.beh; S.base = null; }
   }
   function spook() {
+    if (S.type !== 'man') return;
     if (S.ragdoll || !S.alive || (S.spooked && !S.atCover)) return;
     if (S.hide) { if (!S.atCover) { S.spooked = true; S.spookT = 0.34; S.sprint = 5.6; S.cover.copy(S.hide); } return; }
     S.spookT = S.spooked ? 0.35 : 0; S.spooked = true; S.atCover = false; S.peeking = false; S.sprint = 4.6;
@@ -1185,6 +1132,7 @@ void main(){
   }
   const hitRes = { t: 0, part: '', point: V3(), centre: 0 };
   function segmentHit(a, b) {
+    if (S.type !== 'man') return S.alive ? rigHit(a, b) : null;
     if (!S.alive || S.ragdoll) return null;
     _r.subVectors(chest, a); _d1.subVectors(b, a); const L2 = _d1.lengthSq();
     const tt = clamp(_r.dot(_d1) / L2, 0, 1); _c1.copy(a).addScaledVector(_d1, tt);
@@ -1415,6 +1363,7 @@ void main(){
   [[J.pelvis, 0.16], [J.lHip, 0.15], [J.rHip, 0.15], [J.chest, 0.12], [J.lSh, 0.07], [J.rSh, 0.07], [J.neck, 0.05], [J.head, 0.01],
     [J.lKn, 0.08], [J.rKn, 0.08], [J.lFt, 0.02], [J.rFt, 0.02]].forEach(([j, w]) => { FOLD[j] = w; });
   function launch(point, dir, part, boost = 1) {
+    if (S.type !== 'man') { rigExplode(point, dir); return; }
     if (S.ragdoll) return;
     LV.boost = boost;
     const hadCig = A.cig > 0.3;
@@ -1536,13 +1485,306 @@ void main(){
       PP[i].copy(P[i]).addScaledVector(_vel, -SUB);
     }
   }
+  // ======================================================================
+  // Machine targets: a parked car or a hovering quadcopter, hot all over (engine and tyres, motors and battery).
+  // Alerted (missed once), each moves on a steady, readable path: the car drives laps round its block, the
+  // quadcopter rises and sinks between two heights. A hit blows it apart: the pieces fly, bounce off walls and
+  // the street, and on a car one tyre goes bouncing away down the road.
+  // ======================================================================
+  const RIG = { kind: '', c: V3(), yaw: 0, f: V3(), r: V3(), lo: [0, 0, 0], hi: [0, 0, 0], cy: 0, meshes: null, g: null,
+    deb: [], restT: 0, thudT: 0, move: null, t: 0, h0: 0, ax: 0, az: 1, tilt: 0 };
+  const CAR_L = 4.6, CAR_W = 1.84, CAR_H = 1.75, TYRE_R = 0.33, CAR_V = 4, QUAD_A = 5, QUAD_T = 9;
+  const rigMat = (t) => thermalMat(FS_SOLID, { uT: { value: t }, uStripe: { value: 0 } }, { side: THREE.DoubleSide });
+  const carMat = [0.9, 0.74, 0.64, 0.82].map(rigMat);    // engine, body, cabin, tyres
+  const quadMat = [0.97, 0.78, 0.88, 0.6].map(rigMat);   // motors, frame, battery, rotors
+  // parts (x to its right, y up, z forward): box size or cylinder [radius, height], centre, material
+  // the technical: a cab-forward pickup with an open bed and a machine gun on a post, firing over the cab
+  const CAR_PARTS = [
+    { s: [1.8, 0.34, 4.5], p: [0, 0.55, 0], m: 1, low: true },  // chassis and lower body
+    { s: [1.76, 0.4, 0.95], p: [0, 0.92, 1.75], m: 0 },         // bonnet (engine heat)
+    { s: [1.7, 0.84, 1.2], p: [0, 1.14, 0.62], m: 2 },          // cab
+    { s: [1.74, 0.06, 1.26], p: [0, 1.59, 0.62], m: 1, high: true },   // cab roof
+    { s: [0.1, 0.42, 2.25], p: [-0.85, 0.93, -1.12], m: 1 },    // bed side, left
+    { s: [0.1, 0.42, 2.25], p: [0.85, 0.93, -1.12], m: 1 },     // bed side, right
+    { s: [1.8, 0.42, 0.1], p: [0, 0.93, -2.24], m: 1 },         // tailgate
+    { s: [1.84, 0.18, 0.16], p: [0, 0.48, 2.3], m: 1 },         // front bumper
+    { s: [0.1, 0.8, 0.1], p: [0, 1.1, -0.95], m: 1 },           // gun post
+    { s: [0.7, 0.42, 0.04], p: [0, 1.62, -0.55], m: 1 },        // gun shield
+    { s: [0.18, 0.2, 0.72], p: [0, 1.58, -0.85], m: 0 },        // gun (hot from firing)
+    { s: [0.07, 0.07, 1.1], p: [0, 1.6, 0.05], m: 0 },          // barrel, out over the cab
+    { tyre: true, p: [-0.86, TYRE_R, 1.5] }, { tyre: true, p: [0.86, TYRE_R, 1.5] },
+    { tyre: true, p: [-0.86, TYRE_R, -1.45] }, { tyre: true, p: [0.86, TYRE_R, -1.45] },
+  ];
+  const QUAD_PARTS = [
+    { s: [0.42, 0.14, 0.56], p: [0, 0, 0], m: 1 },              // body
+    { s: [0.3, 0.1, 0.32], p: [0, 0.12, -0.04], m: 2 },         // battery
+    { s: [0.16, 0.12, 0.16], p: [0, -0.13, 0.22], m: 1 },       // camera
+  ];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    QUAD_PARTS.push({ s: [0.06, 0.05, 0.64], p: [0.23 * sx, 0, 0.23 * sz], m: 1, ry: sx * sz > 0 ? Math.PI / 4 : -Math.PI / 4 });   // arm
+    QUAD_PARTS.push({ cyl: [0.07, 0.09], p: [0.46 * sx, 0.05, 0.46 * sz], m: 0 });                                                  // motor
+    QUAD_PARTS.push({ cyl: [0.28, 0.012], p: [0.46 * sx, 0.11, 0.46 * sz], m: 3 });                                                 // rotor disc
+  }
+  const tyreGeo = new THREE.CylinderGeometry(TYRE_R, TYRE_R, 0.24, 12).rotateZ(Math.PI / 2);   // axle along x
+  function rigMeshes(parts, mats) {
+    return parts.map((q) => {
+      const geo = q.tyre ? tyreGeo : q.cyl ? new THREE.CylinderGeometry(q.cyl[0], q.cyl[0], q.cyl[1], 12) : new THREE.BoxGeometry(q.s[0], q.s[1], q.s[2]);
+      const m = new THREE.Mesh(geo, mats[q.tyre ? 3 : q.m]); m.frustumCulled = false;
+      const r = q.tyre ? TYRE_R : q.cyl ? Math.max(0.05, q.cyl[1] / 2 + 0.03) : Math.min(q.s[0], q.s[1], q.s[2]) / 2 + 0.05;
+      m.userData = { home: new THREE.Vector3(q.p[0], q.p[1], q.p[2]), ry: q.ry || 0, r, tyre: !!q.tyre, low: !!q.low, high: !!q.high };
+      return m;
+    });
+  }
+  const carG = new THREE.Group(), quadG = new THREE.Group(); carG.visible = quadG.visible = false; group.add(carG, quadG);
+  const carMeshes = rigMeshes(CAR_PARTS, carMat), quadMeshes = rigMeshes(QUAD_PARTS, quadMat);
+  function rigReset() {
+    RIG.kind = ''; RIG.move = null; RIG.deb.length = 0; RIG.restT = 0;
+    for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(0, m.userData.ry, 0); }
+    carG.visible = quadG.visible = false; mesh.visible = true;
+  }
+  function rigAxes() { RIG.f.set(Math.sin(RIG.yaw), 0, Math.cos(RIG.yaw)); RIG.r.set(Math.cos(RIG.yaw), 0, -Math.sin(RIG.yaw)); }
+  function rigSpawn(kind, x, y, z, yaw) {
+    rigReset(); RIG.kind = kind; RIG.c.set(x, y, z); RIG.yaw = yaw; RIG.t = grnd(0, 10); RIG.h0 = y; RIG.tilt = 0; rigAxes();
+    if (kind === 'car') { RIG.meshes = carMeshes; RIG.g = carG; RIG.lo = [-CAR_W / 2, 0.12, -CAR_L / 2]; RIG.hi = [CAR_W / 2, CAR_H, CAR_L / 2]; RIG.cy = 0.85; }
+    else { RIG.meshes = quadMeshes; RIG.g = quadG; RIG.lo = [-0.85, -0.4, -0.85]; RIG.hi = [0.85, 0.4, 0.85]; RIG.cy = 0; }   // a forgiving box round the quadcopter
+    S.type = kind; S.char = kind; S.alive = true; S.ragdoll = false; S.settled = false; S.roof = null; S.packGone = false;
+    RIG.g.visible = true; mesh.visible = false; group.visible = true; rigPose();
+  }
+  function rigPose() {
+    RIG.g.position.copy(RIG.c); RIG.g.rotation.set(RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 0.9) + RIG.tilt : 0, RIG.yaw, RIG.kind === 'quad' ? 0.05 * Math.sin(RIG.t * 1.3) : 0, 'YXZ');
+    RIG.g.updateMatrixWorld(true);
+    chest.set(RIG.c.x, RIG.c.y + RIG.cy, RIG.c.z); headPos.copy(chest); S.root.copy(RIG.c);
+    S.dist = chest.distanceTo(PLAYER.eye);
+  }
+  // the round's step against the machine's box (in its own frame): earliest entry along the segment
+  function rigHit(a, b) {
+    const ax = a.x - RIG.c.x, az = a.z - RIG.c.z, bx = b.x - RIG.c.x, bz = b.z - RIG.c.z;
+    const p0 = [ax * RIG.r.x + az * RIG.r.z, a.y - RIG.c.y, ax * RIG.f.x + az * RIG.f.z], p1 = [bx * RIG.r.x + bz * RIG.r.z, b.y - RIG.c.y, bx * RIG.f.x + bz * RIG.f.z];
+    const lo = RIG.lo, hi = RIG.hi;
+    let t0 = 0, t1 = 1;
+    for (let k = 0; k < 3; k++) {
+      const d = p1[k] - p0[k];
+      if (Math.abs(d) < 1e-9) { if (p0[k] < lo[k] || p0[k] > hi[k]) return null; continue; }
+      let ta = (lo[k] - p0[k]) / d, tb = (hi[k] - p0[k]) / d; if (ta > tb) { const q = ta; ta = tb; tb = q; }
+      t0 = Math.max(t0, ta); t1 = Math.min(t1, tb); if (t0 > t1) return null;
+    }
+    hitRes.t = t0; hitRes.part = RIG.kind; hitRes.point.copy(a).lerp(b, t0); hitRes.centre = Math.sqrt(segSeg(a, b, chest, chest));
+    return hitRes;
+  }
+  // the box corners (for the HUD brackets)
+  const rigC = Array.from({ length: 8 }, () => V3());
+  function rigCorners() {
+    let i = 0;
+    for (const lx of [RIG.lo[0], RIG.hi[0]]) for (const y of [RIG.lo[1], RIG.hi[1]]) for (const lz of [RIG.lo[2], RIG.hi[2]])
+      rigC[i++].set(RIG.c.x + RIG.r.x * lx + RIG.f.x * lz, RIG.c.y + y, RIG.c.z + RIG.r.z * lx + RIG.f.z * lz);
+    return rigC;
+  }
+  // ---- alerted: start the steady path (it then keeps going for the rest of the stage)
+  function rigAlert() {
+    if (!RIG.kind || !S.alive || RIG.move) return;
+    if (RIG.kind === 'quad') { RIG.move = { type: 'bob', A: Math.min(QUAD_A, RIG.h0 - 4.5), ph: 0, h0: RIG.h0 }; return; }
+    RIG.move = carLoop() || carShuttle();
+  }
+  // the block beside the parked car: laps in the lanes just outside its kerbs, corners rounded
+  function carLoop() {
+    const c = RIG.c, aSp = GRID.aveSp, sSp = GRID.stSp, river = City.features.river;
+    const hwA = (j) => (j === 0 ? GRID.mainHW : GRID.aveHW);
+    let jA, kH;
+    if (Math.abs(RIG.f.x) > 0.5) { const k = Math.round(-c.z / sSp); kH = c.z > -k * sSp ? k - 1 : k; jA = Math.floor(c.x / aSp); }
+    else { const j = Math.round(c.x / aSp); jA = c.x > j * aSp ? j : j - 1; kH = Math.floor(-c.z / sSp); }
+    if (jA <= -GRID.nAve || jA + 1 >= GRID.nAve || kH < 1 || kH + 1 >= GRID.nSt) return null;
+    if (river && [kH, kH + 1].some((k) => k === river.k || k === river.k + 1)) return null;
+    const lane = 2.6, xa = jA * aSp + hwA(jA) - lane, xb = (jA + 1) * aSp - hwA(jA + 1) + lane, zh = -kH * sSp - GRID.stHW + lane, zl = -(kH + 1) * sSp + GRID.stHW - lane;
+    const C = [[xa, zh], [xb, zh], [xb, zl], [xa, zl]];
+    for (let i = 0; i < 4; i++) {
+      const [x0, z0] = C[i], [x1, z1] = C[(i + 1) % 4], L = Math.hypot(x1 - x0, z1 - z0);
+      if (rayLen(x0, 0.9, z0, x1 - x0, z1 - z0, L) < L - 0.5) return null;
+    }
+    // rounded corners (radius 7 m), then arc length along the loop
+    const pts = [], rr = 7;
+    for (let i = 0; i < 4; i++) {
+      const P = C[i], A0 = C[(i + 3) % 4], B0 = C[(i + 1) % 4];
+      const li = Math.hypot(P[0] - A0[0], P[1] - A0[1]), lo = Math.hypot(B0[0] - P[0], B0[1] - P[1]);
+      const a = [P[0] - (P[0] - A0[0]) / li * rr, P[1] - (P[1] - A0[1]) / li * rr], b = [P[0] + (B0[0] - P[0]) / lo * rr, P[1] + (B0[1] - P[1]) / lo * rr];
+      for (let k = 0; k <= 6; k++) { const t = k / 6, u1 = 1 - t; pts.push([u1 * u1 * a[0] + 2 * u1 * t * P[0] + t * t * b[0], u1 * u1 * a[1] + 2 * u1 * t * P[1] + t * t * b[1]]); }
+    }
+    const cum = [0]; for (let i = 1; i <= pts.length; i++) { const p = pts[i % pts.length], q = pts[i - 1]; cum.push(cum[i - 1] + Math.hypot(p[0] - q[0], p[1] - q[1])); }
+    const M = { type: 'loop', pts, cum, L: cum[pts.length], s: 0, dir: 1, v: 0, off: V3(), blend: 0 };
+    // start from the nearest point of the loop, heading the way the car faces
+    let best = 1e9;
+    for (let i = 0; i < pts.length; i++) {
+      const q = pts[(i + 1) % pts.length], p = pts[i], dx = q[0] - p[0], dz = q[1] - p[1], L = Math.hypot(dx, dz) || 1;
+      const t = clamp(((c.x - p[0]) * dx + (c.z - p[1]) * dz) / (L * L), 0, 1), x = p[0] + dx * t, z = p[1] + dz * t, d = Math.hypot(c.x - x, c.z - z);
+      if (d < best) { best = d; M.s = cum[i] + t * L; M.dir = (dx * RIG.f.x + dz * RIG.f.z) >= 0 ? 1 : -1; }
+    }
+    loopAt(M, M.s, cvA); M.off.set(c.x - cvA.x, 0, c.z - cvA.z);
+    return M;
+  }
+  function loopAt(M, s, out, tan) {
+    s = ((s % M.L) + M.L) % M.L;
+    let i = 0; while (i < M.pts.length - 1 && M.cum[i + 1] < s) i++;
+    const p = M.pts[i], q = M.pts[(i + 1) % M.pts.length], L = (M.cum[i + 1] - M.cum[i]) || 1, t = (s - M.cum[i]) / L;
+    out.set(p[0] + (q[0] - p[0]) * t, 0, p[1] + (q[1] - p[1]) * t);
+    if (tan) tan.set(q[0] - p[0], 0, q[1] - p[1]).normalize();
+    return out;
+  }
+  // no clear lap (river, the city's edge, something across a street): back and forth along its own street
+  function carShuttle() {
+    const f = RIG.f, c = RIG.c;
+    const fw = Math.min(30, rayLen(c.x + f.x * 2.4, 0.8, c.z + f.z * 2.4, f.x, f.z, 40) - 4), bw = Math.min(30, rayLen(c.x - f.x * 2.4, 0.8, c.z - f.z * 2.4, -f.x, -f.z, 40) - 4);
+    if (fw + bw < 8) return { type: 'still' };
+    return { type: 'shuttle', o: c.clone(), f: f.clone(), a: -Math.max(0, bw), b: Math.max(0, fw), s: 0, to: 1, v: 0, wait: 0 };
+  }
+  function rigMove(dt) {
+    RIG.t += dt;
+    const M = RIG.move;
+    if (RIG.kind === 'quad') {
+      // hovering: a slow breathing bob and a slow turn; alerted: up and down between two heights
+      if (M) { M.ph += dt * TAU / QUAD_T; RIG.c.y = M.h0 + M.A * Math.sin(M.ph); RIG.tilt = 0.12 * Math.cos(M.ph); }
+      else RIG.c.y = RIG.h0 + 0.3 * Math.sin(RIG.t * 1.3);
+      RIG.yaw += dt * 0.15; rigAxes();
+      return;
+    }
+    if (!M || M.type === 'still') return;
+    if (M.type === 'loop') {
+      M.v = Math.min(CAR_V, M.v + 2 * dt); M.s += M.dir * M.v * dt; M.blend = Math.min(1, M.blend + M.v * dt / 12);
+      loopAt(M, M.s, cvA, cvB); if (M.dir < 0) cvB.negate();
+      RIG.c.set(cvA.x + M.off.x * (1 - M.blend), 0, cvA.z + M.off.z * (1 - M.blend));
+      const yt = Math.atan2(cvB.x, cvB.z); let dy = yt - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      RIG.yaw += dy * (1 - Math.exp(-5 * dt)); rigAxes();
+      return;
+    }
+    // shuttle: drive to one end, pause, reverse to the other
+    if (M.wait > 0) { M.wait -= dt; return; }
+    const goal = M.to > 0 ? M.b : M.a, left = Math.abs(goal - M.s);
+    M.v = Math.min(CAR_V, M.v + 2 * dt, Math.sqrt(4 * left));
+    const st = Math.min(left, M.v * dt); M.s += Math.sign(goal - M.s) * st;
+    RIG.c.copy(M.o).addScaledVector(M.f, M.s);
+    if (left - st < 0.02) { M.to = -M.to; M.v = 0; M.wait = 0.8; }
+  }
+  // the way in for the route planner and the kill camera, from where it is now: along its street, from the
+  // side with the longer clear run, at its height
+  function refreshSpot() {
+    const sp = S.spot; if (!sp || !RIG.kind) return;
+    const c = RIG.c, quad = RIG.kind === 'quad', ax = quad ? RIG.ax : RIG.f.x, az = quad ? RIG.az : RIG.f.z, y0 = quad ? c.y : 0.9;
+    const off = quad ? 1.2 : 2.6, runF = rayLen(c.x + ax * off, y0, c.z + az * off, ax, az, 60), runB = rayLen(c.x - ax * off, y0, c.z - az * off, -ax, -az, 60);
+    const dir = runF >= runB ? 1 : -1;
+    const ex = (d) => new THREE.Vector3(c.x + ax * dir * d, quad ? y0 : 1.2 + 0.06 * d, c.z + az * dir * d);
+    sp.entry = ex(9); sp.entry2 = ex(33);
+    if (S.alive) { const g = gateFor(c.x, c.y + RIG.cy, c.z); if (g) sp.gate = g; }
+  }
+  const cvA = V3(), cvB = V3(), cD = V3(), cN = V3(), cQ = new THREE.Quaternion(), cQ2 = new THREE.Quaternion(), XAX = new THREE.Vector3(1, 0, 0);
+  function rigExplode(point, dir) {
+    if (!S.alive) return;
+    S.alive = false; S.settled = false; RIG.move = null; RIG.restT = 0; RIG.thudT = 0;
+    RIG.g.updateMatrixWorld(true);
+    cvB.set(dir.x, 0, dir.z); if (cvB.lengthSq() < 1e-6) cvB.copy(RIG.f); cvB.normalize();
+    const car = RIG.kind === 'car', tyres = RIG.meshes.filter((m) => m.userData.tyre), kick = car ? tyres[Math.floor(grnd(0, tyres.length))] : null;   // the tyre that bounces off down the road
+    RIG.meshes.forEach((m, i) => {
+      const p = m.getWorldPosition(V3()), q = m.getWorldQuaternion(new THREE.Quaternion());
+      group.add(m); m.position.copy(p); m.quaternion.copy(q);
+      cvA.subVectors(p, RIG.c); cvA.y = 0; if (cvA.lengthSq() < 1e-4) cvA.set(grnd(-1, 1), 0, grnd(-1, 1)); cvA.normalize();
+      const v = V3();
+      if (car) {
+        v.copy(cvA).multiplyScalar(grnd(3, 8)).addScaledVector(cvB, grnd(2, 6)); v.y = grnd(5, 12);
+        if (m.userData.high) v.y += 6;                                      // the cab roof goes highest
+        if (m.userData.low) { v.multiplyScalar(0.2); v.y = grnd(2, 3); }   // the chassis barely leaves the street
+        if (m === kick) { v.copy(cvB).multiplyScalar(grnd(9, 12)).addScaledVector(cvA, 2); v.y = grnd(7, 9); }
+      } else {
+        // rotors and motors fly off; the body takes the round's push and drops
+        v.copy(cvA).multiplyScalar(i < 3 ? grnd(0.5, 1.5) : grnd(4, 9)).addScaledVector(cvB, i < 3 ? grnd(2, 4) : grnd(1, 3)); v.y = i < 3 ? grnd(0, 2) : grnd(2, 6);
+      }
+      const w = V3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(grnd(4, car ? 12 : 20));
+      RIG.deb.push({ m, p, q, v, w, r: m.userData.r, tyre: m.userData.tyre, e: m.userData.tyre ? 0.62 : 0.28, rest: false, still: 0, ground: false, roll: 0 });
+    });
+  }
+  function rigDebris(dt) {
+    if (!RIG.deb.length) return;
+    const n = Math.max(1, Math.ceil(dt / (1 / 120))), h = dt / n;
+    for (let k = 0; k < n; k++) for (const d of RIG.deb) {
+      if (d.rest) continue;
+      d.ground = false;
+      d.v.y -= PHYS.g * h;
+      const sp = d.v.length();
+      let moved = false;
+      if (sp > 1e-4) {
+        cD.copy(d.v).multiplyScalar(1 / sp);
+        if (City.raycast(d.p, cD, sp * h + d.r)) {
+          const Hh = City.hit; cN.set(Hh.nx, Hh.ny, Hh.nz); if (cN.dot(cD) > 0) cN.negate();
+          d.p.addScaledVector(cD, Math.max(0, Hh.t - d.r)); moved = true;
+          const vn = d.v.dot(cN);
+          if (vn < 0) {
+            d.v.addScaledVector(cN, -(1 + d.e) * vn);
+            if (-vn > 3 && RIG.thudT <= 0) { RIG.thudT = 0.08; if (Sfx.bodyThud) Sfx.bodyThud(Math.min(1, -vn / 12) * (d.tyre ? 0.4 : RIG.kind === 'quad' ? 0.35 : 0.8)); }
+            if (cN.y > 0.6) {
+              d.ground = true;
+              if (-vn > 1.2) { const kf = d.tyre ? 0.95 : 0.7; d.v.x *= kf; d.v.z *= kf; if (!d.tyre) d.w.multiplyScalar(0.6); }
+              else { d.v.y = 0; const kf = Math.exp(-(d.tyre ? 0.35 : 4) * h); d.v.x *= kf; d.v.z *= kf; if (!d.tyre) d.w.multiplyScalar(Math.exp(-6 * h)); }
+            }
+          }
+        }
+      }
+      if (!moved) d.p.addScaledVector(d.v, h);
+      // a tyre on the street stands up and rolls; everything else (and a tyre in the air) tumbles
+      const hs = Math.hypot(d.v.x, d.v.z);
+      if (d.tyre && d.ground && hs > 0.3) {
+        cvA.set(d.v.z, 0, -d.v.x).multiplyScalar(1 / hs);
+        d.roll += (hs / d.r) * h;
+        cQ.setFromUnitVectors(XAX, cvA); cQ2.setFromAxisAngle(cvA, d.roll); cQ2.multiply(cQ);
+        d.q.slerp(cQ2, 1 - Math.exp(-14 * h)); d.w.copy(cvA).multiplyScalar(hs / d.r);
+      } else {
+        const wl = d.w.length(); if (wl > 1e-4) { cQ.setFromAxisAngle(cvA.copy(d.w).multiplyScalar(1 / wl), wl * h); d.q.premultiply(cQ); }
+      }
+    }
+    let moving = 0;
+    for (const d of RIG.deb) {
+      if (!d.rest) {
+        if (d.v.lengthSq() < 0.09 && d.ground) { d.still += dt; d.w.multiplyScalar(0.9); if (d.still > 0.4) d.rest = true; } else d.still = 0;
+        if (!d.rest) moving++;
+      }
+      d.m.position.copy(d.p); d.m.quaternion.copy(d.q);
+    }
+    RIG.restT += dt; RIG.thudT -= dt;
+    if (moving === 0 || RIG.restT > 6) S.settled = true;
+  }
+  // the wreck's middle (the kill camera watches it) and its pieces (for the result brackets); tyres and
+  // rotors that fly off are left out so the camera stays on the wreck
+  const rigPts = [];
+  function rigJoints() {
+    rigPts.length = 0;
+    if (S.alive || !RIG.deb.length) { rigPts.push(chest); return rigPts; }
+    RIG.deb.forEach((d, i) => { if (!d.tyre && (RIG.kind === 'car' || i < 3)) rigPts.push(d.p); });
+    return rigPts;
+  }
+  // ---- quadcopter spot: hovering over the middle of a street, out of the shooter's sight at every height it
+  // will bob through, with room round it and a clear run in along the street at its height
+  function quadHidden(x, y, z) {
+    for (const [dx, dy, dz] of [[0, 0, 0], [0.8, 0, 0], [-0.8, 0, 0], [0, 0, 0.8], [0, 0, -0.8], [0, 0.4, 0], [0, -0.4, 0]]) if (visibleFrom(PLAYER.eye, _hs.set(x + dx, y + dy, z + dz))) return false;
+    return true;
+  }
+  function tryQuad(c) {
+    const cx = c.nx ? (c.wall + c.opp) / 2 : c.x, cz = c.nz ? (c.wall + c.opp) / 2 : c.z, h = grnd(10, 22), A = Math.min(QUAD_A, h - 4.5);
+    if (!quadHidden(cx, h, cz) || !quadHidden(cx, h + A, cz) || !quadHidden(cx, h - A, cz)) return nope('hqVisible');
+    if (!boxFree([cx - 2.2, h - A - 1.5, cz - 2.2, cx + 2.2, h + A + 1.5, cz + 2.2], null)) return nope('hqBox');
+    const runA = rayLen(cx, h, cz, c.ax, c.az, 60), runB = rayLen(cx, h, cz, -c.ax, -c.az, 60);
+    if (Math.max(runA, runB) < 40) return nope('hqRun');
+    const gate = gateFor(cx, h, cz); if (!gate) return nope('hqGate');
+    rigSpawn('quad', cx, h, cz, grnd(0, TAU)); RIG.ax = c.ax; RIG.az = c.az;
+    S.spot = { kind: 'quad', gate, glass: [] };
+    refreshSpot();
+    return true;
+  }
   function hide() { group.visible = false; S.alive = false; }
-  function centroid(out) { out.set(0, 0, 0); const Q = S.ragdoll ? P : jp; for (let i = 0; i < NJ; i++) out.add(Q[i]); return out.multiplyScalar(1 / NJ); }
+  function centroid(out) {
+    if (S.type !== 'man') { const Q = rigJoints(); out.set(0, 0, 0); for (const p of Q) out.add(p); return out.multiplyScalar(1 / Q.length); }
+    out.set(0, 0, 0); const Q = S.ragdoll ? P : jp; for (let i = 0; i < NJ; i++) out.add(Q[i]); return out.multiplyScalar(1 / NJ);
+  }
+  rigReset(); S.type = 'man';
   hide();
   const debug = {
     // put the man on a given roof spot with a given behaviour / outfit (for probes)
     respawn(stage = 1, beh, variant) { return spawn(stage, { beh, variant }); },
     bones, A, LV,
   };
-  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.ragdoll ? P : jp), debug };
+  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, debug };
 })();

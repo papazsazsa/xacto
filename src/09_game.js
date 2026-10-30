@@ -149,7 +149,7 @@ function newStage() {
   // start looking roughly down the avenue, toward the target's side
   const tc = Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
-  Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I]; DRONE.init = false;
+  Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];
   G.timeLeft = 60; G.breath = 1; G.gasp = 0;
   setState('brief');
   Sfx.windLevel && Sfx.windLevel(G.wind.length());
@@ -175,6 +175,8 @@ function lase(o, d) {
 function fire() {
   if (G.rounds <= 0) return;
   G.rounds--;
+  // a machine (it may be on the move): the way in, and the planned route, start from where it is now
+  if (Target.S.type !== 'man' && Target.S.alive) { Target.refreshSpot(); planHidden(); }
   camera.getWorldDirection(fwd);
   const origin = tmpV.copy(PLAYER.eye).add(new THREE.Vector3(0, -0.06, 0));
   const range = G.lased > 0 ? G.lased : 1000;
@@ -199,7 +201,7 @@ function fire() {
   Bullet.fire(origin, dir, {
     aMax: G.diff.aMax, tau: G.diff.tau, budget: G.diff.budget, wind: G.wind, gust: G.diff.gust, turb: G.diff.turb, roll: G.diff.roll,
     lockT: Math.max(0.05, G.diff.lockF * tof), seeker: G.diff.seeker, basket: G.diff.basket, homeT: G.diff.homeT,
-    vc, vMin: G.diff.vMin, slowNear: G.diff.slowNear, slowFar: G.diff.slowFar, brakeT, dash, windK: G.diff.windK, bleed: G.diff.bleed, ricochets: 1,
+    vc, vMin: G.diff.vMin, slowNear: G.diff.slowNear, slowFar: G.diff.slowFar, brakeT, dash, windK: G.diff.windK, bleed: G.diff.bleed, ricochets: 3,
   });
   // once he has been missed he hears every shot after it (sound takes its time to reach him) and runs or ducks
   if (Target.S.alive && Target.S.wary > 0) Target.alert(0.3 + Target.S.dist / 343);
@@ -216,14 +218,14 @@ function scoreHit(ev) {
   G.lastHit = { range, centre, part: ev.part };
   G.tallyRows = [
     [`RANGE ${Math.round(range)} M`, Math.round(range * 2)],
-    [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
+    ev.part === 'car' ? ['TECHNICAL DESTROYED', 600] : ev.part === 'quad' ? ['DRONE DOWN', 600] : [ev.part === 'head' ? 'HAT TRICK' : centre < 0.15 ? 'CENTER MASS' : 'OFF CENTER', ev.part === 'head' ? 700 : centre < 0.15 ? 500 : 100],
     [`CONTROL RESERVE ${Math.round(ctrl * 100)}%`, Math.round(ctrl * 800)],
   ];
   const bendDeg = Bullet.S.bend / DEG;
   if (bendDeg >= 3) G.tallyRows.push([`CURVE SHOT ${Math.round(bendDeg)} DEG`, Math.round(Math.min(bendDeg, 180)) * 12]);
-  if (Target.S.spot) { const k = Target.S.spot.kind; G.tallyRows.push(k === 'window' ? ['THROUGH THE WINDOW', 1500] : k === 'car' ? ['THROUGH THE WINDSHIELD', 1500] : k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
+  if (Target.S.spot) { const k = Target.S.spot.kind; G.tallyRows.push(k === 'awning' ? ['UNDER COVER', 1200] : ['BLIND SHOT', 800]); }
   else if (!clearLine(Bullet.S.origin, ev.point, -0.6)) G.tallyRows.push(['AROUND COVER', 600]);
-  if (Bullet.S.ricochets === 0) G.tallyRows.push(['RICOCHET KILL', 1000]);
+  { const nr = 3 - Bullet.S.ricochets; if (nr > 0) G.tallyRows.push([nr > 1 ? `RICOCHET KILL X${nr}` : 'RICOCHET KILL', 1000 * nr]); }
   if (Target.S.wary > 0) G.tallyRows.push(['ALERTED TARGET', 500]);
   if (Target.S.char === 'pack') G.tallyRows.push(['BACKPACK BLAST', 800]);
   if (G.nearMisses > 0) G.tallyRows.push([`CLOSE CALLS X${G.nearMisses}`, 150 * G.nearMisses]);
@@ -231,20 +233,21 @@ function scoreHit(ev) {
   G.tallyStep = G.tallyRows.length > 5 ? 0.3 : 0.45;
   G.score += G.tallyRows.reduce((a, r) => a + r[1], 0);
 }
-// the big pack goes up: a fireball, smoke, sparks, a blast that shatters nearby glass and shakes the camera
-function packBlast() {
+// the big pack (or a car, k > 1) goes up: a fireball, smoke, sparks, a blast that shatters nearby glass and
+// shakes the camera
+function packBlast(k = 1) {
   const c = tmpV2.copy(Target.chest); Target.S.packGone = true;
-  for (let i = 0; i < 44; i++) {
-    const a = Math.random() * TAU, e = Math.random() * 1.3 - 0.3, sp = 3 + Math.random() * 9;
+  for (let i = 0; i < 44 * k; i++) {
+    const a = Math.random() * TAU, e = Math.random() * 1.3 - 0.3, sp = (3 + Math.random() * 9) * Math.sqrt(k);
     FX.spawn(c.x, c.y, c.z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 2, Math.sin(a) * Math.cos(e) * sp, 0.5 + Math.random() * 0.7, 0.5, 2.2 + Math.random(), 1.15, 1.6, 3, 0);
   }
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 26 * k; i++) {
     const a = Math.random() * TAU, sp = 1 + Math.random() * 3;
     FX.spawn(c.x, c.y, c.z, Math.cos(a) * sp, 1 + Math.random() * 2, Math.sin(a) * sp, 2 + Math.random() * 1.6, 1.0, 4 + Math.random() * 2, 0.32, 1.2, 1.5, 0);
   }
-  FX.sparks(c, UP, 70, 40);
-  City.breakGlassNear(c, 9);
-  Sfx.boom && Sfx.boom(); G.boomT = 1.0;
+  FX.sparks(c, UP, 70 * k, 40);
+  City.breakGlassNear(c, 9 * k);
+  Sfx.boom && Sfx.boom(); G.boomT = k > 1 ? 1.4 : 1.0;
 }
 function onBulletEvent(ev) {
   Sfx.flightStop(); G.lastEv = ev.type; G.whoosh = 0; G.toastT = 0;   // flight call-outs never overlap the result banner
@@ -252,10 +255,11 @@ function onBulletEvent(ev) {
   if (G.hitDir.lengthSq() < 1e-6) G.hitDir.set(0, 0, -1); G.hitDir.normalize();
   camK.init = false;
   if (ev.type === 'hit') {
-    const blast = Target.S.char === 'pack';
-    if (blast) packBlast();
+    const car = Target.S.type === 'car', quad = Target.S.type === 'quad', blast = Target.S.type === 'man' && Target.S.char === 'pack';
+    if (blast) packBlast(); else if (car) packBlast(2); else if (quad) packBlast(0.6);
     Target.launch(ev.point, G.hitDir, ev.part, blast ? 1.7 : 1);
-    Sfx.hit(); G.flash = blast ? 1 : 0.35;
+    Sfx.hit(); G.flash = blast || car ? 1 : quad ? 0.6 : 0.35;
+    Target.refreshSpot();   // a machine: the kill camera's fixed view is worked out from where it was hit
     G.rounds = G.maxRounds; // every kill refills the magazine
     scoreHit(ev);
     Bullet.hideRound();
@@ -307,35 +311,6 @@ const manGlow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMa
   transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
 }));
 manGlow.frustumCulled = false; manGlow.renderOrder = 6; scene.add(manGlow);
-// ---- MQ-DARC: a drone circling high over his area. Its camera feeds the MQ-DARC VIEW beside the scope; the
-// aircraft itself is a tiny white delta with a blinking beacon, up in the sky for anyone who looks for it.
-const DRONE = { R: 900, H: 1100, period: 170, c: new THREE.Vector3(), init: false };
-const droneCam = new THREE.PerspectiveCamera(5, 1, 150, 6000);
-const droneMesh = (() => {
-  const s = 2.0, g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 2.2 * s, -1.6 * s, 0, -1.2 * s, 1.6 * s, 0, -1.2 * s, 0, 0.25 * s, -0.9 * s], 3));
-  g.setIndex([0, 1, 3, 0, 3, 2, 1, 2, 3, 0, 2, 1]); g.computeVertexNormals();
-  const m = new THREE.Mesh(g, thermalMat(FS_SOLID, { uT: { value: 0.72 }, uStripe: { value: 0 } }, { side: THREE.DoubleSide }));
-  m.frustumCulled = false; return m;
-})();
-const droneBeacon = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), manGlow.material.clone());
-droneBeacon.frustumCulled = false; droneBeacon.renderOrder = 6; droneBeacon.material.depthTest = true;
-scene.add(droneMesh, droneBeacon);
-G.droneTgt = { vis: false, x: 0, y: 0 }; G.droneSees = false; G.droneAlt = 0; G.droneYou = { x: 0.5, y: 0.5 };
-const drTan = new THREE.Vector3();
-function droneUpdate() {
-  const c = Target.chest;
-  if (!DRONE.init || DRONE.c.distanceTo(c) > 250) { DRONE.c.copy(c); DRONE.init = true; } else DRONE.c.lerp(c, 0.01);
-  const t = U.uTime.value, a = t * TAU / DRONE.period + 1.3;
-  droneMesh.position.set(DRONE.c.x + Math.cos(a) * DRONE.R, DRONE.H + 25 * Math.sin(t * 0.21), DRONE.c.z + Math.sin(a) * DRONE.R);
-  drTan.set(-Math.sin(a), 0, Math.cos(a)).add(droneMesh.position); droneMesh.up.copy(UP); droneMesh.lookAt(drTan); droneMesh.rotateZ(-0.3);
-  // beacon: a soft navigation light under the nose, blinking once every 1.4 s
-  droneBeacon.position.copy(droneMesh.position).y -= 0.6; droneBeacon.quaternion.copy(camera.quaternion); droneBeacon.scale.setScalar(3.2);
-  const bt = t % 1.4; droneBeacon.material.uniforms.uHeat.value = bt < 0.18 ? 0.55 * Math.sin(Math.PI * bt / 0.18) : 0;
-  droneCam.position.copy(droneMesh.position); droneCam.up.copy(UP); droneCam.lookAt(DRONE.c);
-  const dd = droneCam.position.distanceTo(DRONE.c); droneCam.fov = 2 * Math.atan(62 / dd) / DEG;
-  G.droneAlt = droneCam.position.y;
-}
 G.coverScreen = { vis: false, x0: 0, y0: 0, x1: 0, y1: 0 };
 const cvP = new THREE.Vector3();
 function coverBox(out) {
@@ -409,7 +384,9 @@ function aimUpdate(rdt, input) {
   const c = Target.chest;
   if (input) {
     const kx = (held('ArrowRight', 'KeyD') ? 1 : 0) - (held('ArrowLeft', 'KeyA') ? 1 : 0), ky = (held('ArrowUp', 'KeyW') ? 1 : 0) - (held('ArrowDown', 'KeyS') ? 1 : 0);
-    const dxp = Input.dx + kx * innerHeight * 0.45 * rdt, dyp = Input.dy - ky * innerHeight * 0.45 * rdt;
+    // touch: the marker moves less per finger travel as the round closes in, so corrections stay small up close
+    const tk = Hud.touch ? clamp(Bullet.S.p.distanceTo(c) / 150, 0.35, 1) : 1;
+    const dxp = Input.dx * tk + kx * innerHeight * 0.45 * rdt, dyp = Input.dy * tk - ky * innerHeight * 0.45 * rdt;
     if (dxp || dyp) {
       camera.getWorldDirection(fwd);
       ndc.copy(G.aimP).project(camera);
@@ -428,7 +405,8 @@ function aimUpdate(rdt, input) {
     if (!G.aimLock && Target.S.alive) {
       project(G.aimP, aimS1); project(c, aimS2);
       const px = aimS1.vis && aimS2.vis ? Math.hypot((aimS1.x - aimS2.x) * innerWidth, (aimS1.y - aimS2.y) * innerHeight) : 1e9;
-      const lr = 30 * innerHeight / 720;
+      // touch: the marker snaps onto him from twice as far; a moving target half as far again
+      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1);
       if (px > lr * 2) G.aimArmed = true;
       if (G.aimArmed && px < lr) G.aimLock = true;
     }
@@ -785,15 +763,13 @@ function setupKillView(second) {
   Target.centroid(killCentre);
   const spot = Target.S.spot;
   if (spot && spot.entry) {
-    // he went down inside a window bay or a car: watch through the broken glass from out along the run-in,
-    // high enough to see over the sill (or the bonnet) and down onto the floor
-    // a fixed spot outside the glass, worked out from the spot itself (never from where his body ends up,
-    // which can be deep in the room or against the ceiling)
+    // a car or a quadcopter: watch the wreck fly from a fixed spot out along its street, high enough to see the
+    // pieces land
     const out = kcS.subVectors(spot.entry2, spot.entry); out.y = 0;
     const L = out.length() || 1; out.multiplyScalar(1 / L);
-    const sd = second ? -1 : 1, car = spot.kind === 'car', back = car ? (second ? 3 : 0) : (second ? 4 : 1.5);
-    const y = car ? (second ? 3.0 : 2.2) : spot.entry.y + (second ? 3.4 : 2.4);
-    KC.base.copy(spot.entry).addScaledVector(out, back - (car ? 3 : 0)); KC.base.y = y;
+    const sd = second ? -1 : 1, quad = spot.kind === 'quad', back = second ? 12 : 7;
+    const y = quad ? Math.max(4, spot.entry.y + (second ? 4 : 1.5)) : (second ? 7 : 4);
+    KC.base.copy(spot.entry).addScaledVector(out, back - 3); KC.base.y = y;
     KC.base.x += -out.z * sd * 1.3; KC.base.z += out.x * sd * 1.3; KC.dir.copy(out); KC.fixed = true;
     KC.anchor.copy(killCentre); KC.dist = KC.base.distanceTo(killCentre);
     camK.look.copy(killCentre); camK.orbit = 0; camK.init = true;
@@ -826,7 +802,7 @@ function killCamera(rdt) {
   camK.orbit += rdt * 0.05;
   camK.look.lerp(killCentre, 1 - Math.exp(-6 * rdt));
   // the camera follows the tumbling man part of the way (dolly), then a spring arm keeps it out of walls
-  if (KC.fixed) { KC.pos.copy(KC.base); if (G.state === 'tally') KC.pos.y += Math.min(1.2, G.stateT * 0.3); }   // window / car: hold the spot outside the glass
+  if (KC.fixed) { KC.pos.copy(KC.base); if (G.state === 'tally') KC.pos.y += Math.min(1.2, G.stateT * 0.3); }   // car: hold the fixed view
   else {
     kcA.subVectors(camK.look, KC.anchor).multiplyScalar(0.9);
     KC.pos.copy(KC.base).add(kcA).sub(camK.look).applyAxisAngle(UP, camK.orbit).add(camK.look);
@@ -978,7 +954,7 @@ function updateAim(rdt) {
     const ex = Input.mx < 0.04 ? -1 : Input.mx > 0.96 ? 1 : 0, ey = Input.my < 0.05 ? -1 : Input.my > 0.95 ? 1 : 0;
     Aim.yaw -= ex * fovR * 0.5 * rdt; Aim.pitch -= ey * fovR * 0.5 * rdt;
   }
-  Aim.yaw = clamp(Aim.yaw, -1.0, 1.0); Aim.pitch = clamp(Aim.pitch, -0.45, 0.75);   // high enough to find the drone up in the sky
+  Aim.yaw = clamp(Aim.yaw, -1.0, 1.0); Aim.pitch = clamp(Aim.pitch, -0.45, 0.75);   // up to the rooftops above the eye line
   G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];   // fixed magnification
   G.holding = false;
   aimCamera(rdt);
@@ -1060,7 +1036,7 @@ function tick(rdt) {
       // the cone tighten with the stage.
       { const Bs = Bullet.S, c = Target.chest;
         if (Target.S.alive && Bs.budget > 0 && Bs.t > Bs.dash + Bs.brakeT) {
-          const s1 = Math.max(1, G.stage) - 1, reach = Math.max(14, 24 - 1.4 * s1), cone = Math.max(18, 34 - 2 * s1) * DEG;
+          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1, reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.5 : 1) * (mv ? 1.25 : 1), cone = (Math.max(18, 34 - 2 * s1) + (tch ? 12 : 0) + (mv ? 8 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
           const sees = dd < reach + 2 && clearLine(Bs.p, c, 0.15, true);
           if (!G.tLock && dd < reach && Math.acos(clamp(TL1.dot(TL2), -1, 1)) < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
@@ -1185,20 +1161,20 @@ function tick(rdt) {
   FX.update(gdt, camera.position);
   Bullet.updateVisual(gdt, camera);
 
-  droneUpdate();
   // HUD projections
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
-  if ((G.state === 'aim' || G.state === 'brief' || G.state === 'shot') && Target.S.alive) {
-    const ir = Hud.insetRect; droneCam.aspect = ir ? (ir.x1 - ir.x0) / Math.max(1, ir.y1 - ir.y0) : 1; droneCam.updateProjectionMatrix(); droneCam.updateMatrixWorld();
-    ndc.copy(Target.chest).project(droneCam); G.droneTgt.x = (ndc.x + 1) / 2; G.droneTgt.y = (1 - ndc.y) / 2; G.droneTgt.vis = Math.abs(ndc.x) < 0.95 && Math.abs(ndc.y) < 0.95;
-    G.droneSees = clearLine(droneCam.position, Target.chest, -0.4);
-    // where the shooter is, seen from the drone: a dot riding the edge of the feed (inside it if in view)
-    ndc.copy(PLAYER.eye).project(droneCam); let sx = ndc.x, sy = ndc.y;
-    if (tmpV2.copy(PLAYER.eye).applyMatrix4(droneCam.matrixWorldInverse).z > 0) { sx = -sx; sy = -sy; }
-    const sm = Math.max(Math.abs(sx), Math.abs(sy)); if (sm > 1) { sx /= sm; sy /= sm; }
-    G.droneYou.x = (sx + 1) / 2; G.droneYou.y = (1 - sy) / 2;
-  } else G.droneTgt.vis = false;
   project(Target.chest, G.tgtScreen);
+  // a car or a quadcopter: its brackets frame its whole box on screen
+  G.tgtScreen.bw = 0;
+  if (Target.S.type !== 'man' && Target.S.alive && G.tgtScreen.vis) {
+    let x0 = 9, x1 = -9, y0 = 9, y1 = -9, ok = true;
+    camera.getWorldDirection(fwd);
+    for (const p of Target.corners()) {
+      if (tmpV2.subVectors(p, camera.position).dot(fwd) <= 0.5) { ok = false; break; }
+      ndc.copy(p).project(camera); x0 = Math.min(x0, ndc.x); x1 = Math.max(x1, ndc.x); y0 = Math.min(y0, ndc.y); y1 = Math.max(y1, ndc.y);
+    }
+    if (ok) { G.tgtScreen.bw = (x1 - x0) / 2; G.tgtScreen.bh = (y1 - y0) / 2; }
+  }
   if (G.state === 'killcam' || G.state === 'misscam') bodyBox(G.bodyBox); else G.bodyBox.vis = false;
   if (G.state === 'flight' && Bullet.S.active) {
     project(Bullet.S.p, G.roundScreen); for (let i = 0; i < PATH_N; i++) project(G.pathDraw[i], G.pathScreen[i]);
@@ -1294,17 +1270,9 @@ function render() {
     manGlow.material.uniforms.uHeat.value = 0.3 * clamp((dg - 25) / 60, 0, 1) * clamp((0.065 - hFrac) / 0.04, 0, 1);
   }
   Hud.draw(G);
-  const ir = (G.state === 'aim' || G.state === 'brief' || G.state === 'shot') && Target.S.alive && Hud.insetRect;
-  if (ir) {
-    droneCam.aspect = (ir.x1 - ir.x0) / (ir.y1 - ir.y0); droneCam.updateProjectionMatrix(); droneCam.updateMatrixWorld();
-    const gv = manGlow.visible; manGlow.visible = false; droneMesh.visible = droneBeacon.visible = false;
-    Post.renderInset(scene, droneCam, ir, { res: 0.5, grain: 3.2, flat: 0.22, skip: MOBILE && (insetN++ % 3) !== 0 });
-    manGlow.visible = gv; droneMesh.visible = droneBeacon.visible = true;
-  } else Post.renderInset(null);
   Post.render(scene, camera, Hud.tex);
 }
 
-let insetN = 0;
 function onResize() {
   Post.resize(innerWidth, innerHeight);
   Hud.resize(innerWidth, innerHeight);
@@ -1335,9 +1303,9 @@ window.__X = {
     const t = Target.chest; const dx = t.x - PLAYER.eye.x, dy = t.y - PLAYER.eye.y, dz = t.z - PLAYER.eye.z;
     Aim.yaw = Math.atan2(-dx, -dz) + lead; Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz));
   },
-  setMag(i) { G.magI = i; G.mag = MAGS[i]; }, drone: droneMesh, beacon: droneBeacon,
-  spawnWith(o) { const ok = Target.spawn(G.stage, o); planHidden(); DRONE.init = false; return ok; },
-  spawnKind(k) { const ok = Target.spawn(G.stage, { kind: k }); planHidden(); DRONE.init = false; return ok && Target.S.spot && Target.S.spot.kind === k; },
+  setMag(i) { G.magI = i; G.mag = MAGS[i]; },
+  spawnWith(o) { const ok = Target.spawn(G.stage, o); planHidden(); return ok; },
+  spawnKind(k) { const ok = Target.spawn(G.stage, { kind: k }); planHidden(); return ok && Target.S.spot && Target.S.spot.kind === k; },
   aimAt(t) { const dx = t.x - PLAYER.eye.x, dy = t.y - PLAYER.eye.y, dz = t.z - PLAYER.eye.z; Aim.yaw = Math.atan2(-dx, -dz); Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz)); },
   fire() { fire(); },
   // headless simulation without rendering (difficulty probes)

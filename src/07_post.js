@@ -225,13 +225,14 @@ const Post = (() => {
       glow /= 6.0;
       c = mix(c, vec3(0.0), clamp(hud.g, 0.0, 1.0) * 0.92);
       c = mix(c, ink, clamp(hud.r, 0.0, 1.0));
+      c = mix(c, vec3(1.0, 0.12, 0.08), clamp(hud.b, 0.0, 1.0));   // the target brackets: the one red on screen
       c += ink * glow * 0.3 * (1.0 - hud.r);
       c = c*(1.0 + 1.6*uFlash);                                        // hit flash punches highlights; HUD black level stays locked
       // scanlines: >= 3 display px per line, sinusoidal (no moire), bright lines bloom over the gaps
       float lines = uRes.y / max(3.0, uRes.y/270.0);
       float sl = 0.5 + 0.5*cos(6.2831853*uv.y*lines);
       float lum = clamp(dot(c, vec3(0.3, 0.5, 0.2)), 0.0, 1.0);
-      c *= (1.0 - uLines*(1.0 - 0.6*lum)*(1.0 - sl)*(1.0 - 0.75*clamp(hud.r + hud.g, 0.0, 1.0))) * (1.0 + uLines*0.35);
+      c *= (1.0 - uLines*(1.0 - 0.6*lum)*(1.0 - sl)*(1.0 - 0.75*clamp(hud.r + hud.g + hud.b, 0.0, 1.0))) * (1.0 + uLines*0.35);
       // tube glass: soft sheen and vignette
       vec2 vg = uv*(1.0 - uv.yx); float vig = pow(clamp(vg.x*vg.y*16.0, 0.0, 1.0), 0.16);
       c += ink * 0.012 * (1.0 - smoothstep(0.0, 0.9, length((uv - vec2(0.22, 0.86))*vec2(aspect*0.6, 1.4))));

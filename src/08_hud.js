@@ -13,7 +13,9 @@ const Hud = (() => {
   const tex = new THREE.CanvasTexture(cv);
   tex.premultiplyAlpha = true; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
   let W = 2, H = 2, u = 1, portrait = false, touch = false, touched = false;
-  const BR = '#ff0000', DK = '#00ff00', DIM = 'rgba(255,0,0,0.62)', FAINT = 'rgba(255,0,0,0.3)';
+  // ink channels (the display pass turns them into colours): red = bright phosphor, green = dark, blue = the
+  // red of the target brackets (the only red on screen)
+  const BR = '#ff0000', DK = '#00ff00', RD = '#0000ff', DIM = 'rgba(255,0,0,0.62)', FAINT = 'rgba(255,0,0,0.3)';
   const scrim = (a) => `rgba(0,255,0,${a})`;
   const FA = '"Press Start 2P", monospace', FB = '"VT323", monospace';
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -106,6 +108,11 @@ const Hud = (() => {
     ctx.moveTo(x0 + len, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - len);
     ctx.stroke(); ctx.lineCap = 'butt';
   }
+  // the target's brackets: red, on a dark edge so they stand out on any background
+  function tgtCorners(x0, y0, x1, y1, len, lw) {
+    corners(x0, y0, x1, y1, len, DK, lw + 2.2);
+    corners(x0, y0, x1, y1, len, RD, lw);
+  }
   // chamfered panel with an inverted title tab
   function panel(x, y, w, h, title, opts = {}) {
     const c = (opts.chamfer || 8) * u;
@@ -139,7 +146,10 @@ const Hud = (() => {
     if (scope) { const p = warpScope(tx, ty, Rpx); tx = p.x; ty = p.y; }
     const h = Math.max(6 * u, G.tgtScreen.h * H), m = 5 * u;
     box.cx = tx; box.cy = ty; box.h = h;
-    box.x0 = tx - h * 0.2 - m; box.x1 = tx + h * 0.2 + m; box.y0 = ty - h * 0.34 - m; box.y1 = ty + h * 0.74 + m;
+    if (G.tgtScreen.bw) {   // a car: its whole box
+      const hw = G.tgtScreen.bw * W / 2 + m, hh = G.tgtScreen.bh * H / 2 + m;
+      box.x0 = tx - hw; box.x1 = tx + hw; box.y0 = ty - hh; box.y1 = ty + hh;
+    } else { box.x0 = tx - h * 0.2 - m; box.x1 = tx + h * 0.2 + m; box.y0 = ty - h * 0.34 - m; box.y1 = ty + h * 0.74 + m; }
     if (box.x1 - box.x0 < 22 * u) { const c = (box.x0 + box.x1) / 2; box.x0 = c - 11 * u; box.x1 = c + 11 * u; }
     if (box.y1 - box.y0 < 30 * u) { const c = (box.y0 + box.y1) / 2; box.y0 = c - 15 * u; box.y1 = c + 15 * u; }
     return box;
@@ -273,23 +283,15 @@ const Hud = (() => {
     }
   }
 
-  function readouts(G, layout) {
-    // one unit style everywhere: value, space, unit (M, M/S, S)
-    const boxes = [
-      ['RANGE', (x, y, w, h) => { const v = G.lased > 0 ? String(Math.round(G.lased)) : '----'; const vw = txt(v, x + 14 * u, y + h * 0.56, 46, 'left', FB); txt('M', x + 20 * u + vw, y + h * 0.62, 30, 'left', FB, DIM); }],
-      ['CROSSWIND', (x, y, w, h) => { const vw = txt(`${Math.abs(G.crossWind).toFixed(1)}`, x + 14 * u, y + h * 0.56, 46, 'left', FB); txt('M/S', x + 22 * u + vw, y + h * 0.66, 8, 'left', FA, DIM); windArrow(x + w - 42 * u, y + h * 0.56, G); }],
-      ['ROUNDS', (x, y, w, h) => { for (let i = 0; i < G.maxRounds; i++) cartridge(x + 22 * u + i * 20 * u, y + h * 0.42, u, i < G.rounds); txt(`${G.rounds} OF ${G.maxRounds}`, x + w - 14 * u, y + h * 0.56, 8, 'right', FA, G.rounds <= 1 ? BR : DIM); }],
-    ];
-    const bh = layout.bh;
-    if (!portrait) {
-      for (let i = 0; i < 3; i++) { const [x, y, w] = layout.L; const by = y + i * (bh + 22 * u); panel(x, by, w, bh, boxes[i][0], { scrim: 0.45 }); boxes[i][1](x, by, w, bh); }
-    } else {
-      const m = 14 * u, gap = 10 * u, bw = (W - 2 * m - gap) / 2;
-      // two rows above the objective: range and crosswind, then rounds
-      const order = [[0, 1], [2]];
-      order.forEach((o, r) => o.forEach((bi, c) => { const x = m + c * (bw + gap), ry = layout.rows[r]; panel(x, ry, bw, bh, boxes[bi][0], { scrim: 0.45 }); boxes[bi][1](x, ry, bw, bh); }));
-    }
+  // scope view: the rounds left, on one panel (the target's own figures ride on his brackets)
+  function roundsPanel(G, x, y, w, h) {
+    panel(x, y, w, h, 'ROUNDS', { scrim: 0.45 });
+    for (let i = 0; i < G.maxRounds; i++) cartridge(x + 22 * u + i * 20 * u, y + h * 0.42, u, i < G.rounds);
+    txt(`${G.rounds} OF ${G.maxRounds}`, x + w - 14 * u, y + h * 0.56, 8, 'right', FA, G.rounds <= 1 ? BR : DIM);
   }
+  // the one target label, on his brackets in both views: distance (from the shooter in the scope, from the
+  // round in flight) and his height above the ground, in metres
+  const tgtLabel = (d) => `D ${Math.max(0, Math.round(d))}  AGL ${Math.max(0, Math.round(Target.S.root.y))}`;
 
   function scopeHud(G, hideMarkers = false) {
     const cx = W / 2, cy = H / 2, R = scopeRadius(G), ir = iris();
@@ -299,28 +301,17 @@ const Hud = (() => {
     reticle(cx + G.reticleOff.x * H, cy - G.reticleOff.y * H, Rr);
     ctx.restore();
     if (!portrait) {
-      const side = cx - R * 1.12 - 40 * u, bw = clamp(side, 150 * u, 250 * u), bh = 84 * u;
-      const y0 = cy - (bh * 3 + 44 * u) / 2 + 6 * u;
-      readouts(G, { L: [cx - R * 1.12 - 20 * u - bw, y0, bw], bh });
-      // right-hand side: the drone feed, as tall as the three readouts
-      { const ch = bh * 3 + 44 * u, dh = Math.min(ch, bw * 1.05); droneFrame(G, cx + R * 1.12 + 20 * u, y0 + (ch - dh) / 2, bw, dh); }
-      txt(`SENSOR ${G.modeName}`, cx + R * 1.12 + 20 * u, y0 + bh * 3 + 66 * u, 8, 'left', FA, DIM);
-      const az = ((((-(typeof Aim !== 'undefined' ? Aim.yaw : 0)) / DEG) % 360 + 360) % 360).toFixed(1).padStart(5, '0');
-      txt(`AZIMUTH ${az}`, cx - R * 1.12 - 20 * u - bw, y0 + bh * 3 + 66 * u, 8, 'left', FA, DIM);
+      const bw = clamp(cx - R * 1.12 - 40 * u, 150 * u, 250 * u), bh = 84 * u;
+      roundsPanel(G, cx - R * 1.12 - 20 * u - bw, cy - bh / 2, bw, bh);
       if (!G.demo) {
         if (touch) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 20 * u);
         else { txt('SPACE FIRE', 36 * u, H - 22 * u, 8, 'left', FA, DIM); txt('T SENSOR   P PAUSE', W - 36 * u, H - 22 * u, 8, 'right', FA, DIM); }
       }
       fireButton(G);
     } else {
-      const bh = 70 * u, top = cy - R * 1.12, bot = cy + R * 1.12;
-      const rows = [top - bh * 2 - 30 * u, top - bh - 12 * u, bot + 14 * u];
-      readouts(G, { rows, bh });
-      const fcol = touch && !G.demo ? 92 * u : 0;
-      const dw = W - 28 * u - fcol, dh = Math.min(H - rows[2] - 90 * u, dw * 0.55);
-      if (dh > 60 * u) droneFrame(G, 14 * u, rows[2], dw, dh);
-      txt(`SENSOR ${G.modeName}`, 14 * u, H - 44 * u, 8, 'left', FA, DIM);
-      fireButton(G, W - 14 * u - 40 * u, rows[2] + Math.max(dh, 80 * u) / 2);
+      const bh = 70 * u, top = cy - R * 1.12, bot = cy + R * 1.12, bw = Math.min(W - 28 * u, 320 * u);
+      roundsPanel(G, W / 2 - bw / 2, top - bh - 16 * u, bw, bh);
+      fireButton(G, W / 2, Math.min(H - 80 * u, bot + 90 * u), 44 * u);
       if (!G.demo) hint('', 'DRAG TO AIM   TAP FIRE TO SHOOT', H - 18 * u);
     }
     // target marker: open corners outside the man, tracking every frame, label on a dark plate
@@ -329,8 +320,8 @@ const Hud = (() => {
       const b = targetBox(G, true, Rr);
       if (Math.hypot(b.cx - cx, b.cy - cy) < Rr * 0.95) {
         if (G.tgtHidden) ctx.setLineDash([3 * u, 3 * u]);   // dashed: out of sight behind something
-        corners(b.x0, b.y0, b.x1, b.y1, Math.max(5 * u, (b.x1 - b.x0) * 0.25), BR, 1.6); ctx.setLineDash([]);
-        const label = `${Math.round(Target.S.dist)} M${Target.S.wary > 0 ? '  ALERTED' : ''}`, lw = tw(label, 8) + 8 * u, lh = fpx(8, FA) + 8 * u, g = 6 * u;
+        tgtCorners(b.x0, b.y0, b.x1, b.y1, Math.max(5 * u, (b.x1 - b.x0) * 0.25), 1.8); ctx.setLineDash([]);
+        const label = tgtLabel(Target.S.dist), lw = tw(label, 8) + 8 * u, lh = fpx(8, FA) + 8 * u, g = 6 * u;
         // try the four bracket corners; skip any spot where the plate would sit on a reticle line
         const spots = [[b.x1 + g, b.y0 - lh], [b.x0 - g - lw, b.y0 - lh], [b.x1 + g, b.y1], [b.x0 - g - lw, b.y1]];
         let sx = spots[0][0], sy = spots[0][1];
@@ -454,11 +445,11 @@ const Hud = (() => {
       // one set of brackets carries his status: solid in sight, dashed when hidden, heavier with the marker on him
       const mk = (STEER_MODE === 'point' && flying && G.aimLock) || (flying && G.tLock);
       if (G.tgtHidden) ctx.setLineDash([3 * u, 3 * u]);
-      corners(x0, y0, x1, y1, len, lock < 1 ? DIM : BR, mk ? 2.8 : 1.6);
+      tgtCorners(x0, y0, x1, y1, len, mk ? 2.8 : 1.8);
       ctx.setLineDash([]);
       ctx.restore();
       // one label: range, to the right of the brackets (left when that would leave the screen), on a dark plate
-      const rl = `${Math.max(0, Math.round(G.tgtRange))} M`, gap = 10 * u;
+      const rl = tgtLabel(G.tgtRange), gap = 10 * u;
       const rlw = tw(rl, 16);
       if (x1 + gap + rlw < W - 178 * u) plated(rl, x1 + gap, (y0 + y1) / 2 - 6 * u, 16, 'left', FA, BR, 0.75);
       else if (x0 - gap - rlw > 160 * u) plated(rl, x0 - gap, (y0 + y1) / 2 - 6 * u, 16, 'right', FA, BR, 0.75);
@@ -487,7 +478,7 @@ const Hud = (() => {
       ctx.stroke(); if (G.tgtScreen.off ? blink(2) : true) ctx.fill();
       ctx.restore();
       const lx = px - dx * 40 * u, ly = py - dy * 34 * u;
-      plated(`${Math.max(0, Math.round(G.tgtRange))} M`, lx, ly, 8, 'center', FA, BR, 0.8);
+      plated(tgtLabel(G.tgtRange), lx, ly, 8, 'center', FA, BR, 0.8);
     }
     };
     // safe area for markers: inside the frame, between the side panels, clear of the top plates and bottom strip
@@ -495,17 +486,9 @@ const Hud = (() => {
     // status line (one message, highest priority first), above the seeker dial's roll scale
     if (flying) {
       const sy = Math.max(84 * u, cy - sr - 40 * u);
-      const goWord = G.coverSide === 'TOP' ? 'GO HIGH' : 'GO ' + G.coverSide;
       if ((G.stampT || 0) > 0) plated(G.stampText || 'GUIDANCE ACTIVE', W / 2, sy, 24, 'center', FA, (G.stampT * 6) % 2 < 1.2 ? BR : DIM);
       else if (homing) { if (blink(4)) plated('TERMINAL HOMING', W / 2, sy, 16, 'center'); }
-      else if (G.tgtScreen.off) { if (blink(2)) plated('TARGET OFF AXIS', W / 2, sy, 16, 'center'); }
       else if (G.pathBlock >= 0 && G.blockScreen.vis) { if (blink(3)) plated('COURSE BLOCKED', W / 2, sy, 16, 'center'); }
-      else if (G.coverBlocked) plated(G.stage <= 2 && G.coverSide ? `TARGET IN COVER   ${goWord}` : 'TARGET HIDDEN', W / 2, sy, 16, 'center');
-      else if (lock >= 1 && (G.lockT || 0) > 0) plated('SEEKER LOCK', W / 2, sy, 16, 'center');
-      else if (lock < 1) {
-        plated('SEEKER ACQUIRING', W / 2, sy, 16, 'center', FA, blink(3) ? BR : DIM);
-        const bw = 160 * u; plate(W / 2 - bw / 2 - 3 * u, sy + 12 * u, bw + 6 * u, 10 * u, 0.72); segBar(W / 2 - bw / 2, sy + 14 * u, bw, 6 * u, lock, 16, false);
-      } else if (on) plated('ON TARGET', W / 2, sy, 16, 'center');
       if (B.depleted && blink(3)) plated('STEERING BUDGET EMPTY', W / 2, H - 232 * u, 8, 'center');
     }
     // steering budget gauge (left) on a backing strip; slides off to the left while the bracket overlaps it
@@ -521,9 +504,9 @@ const Hud = (() => {
       ctx.fillStyle = lit ? (frac < 0.25 && !blink(3) ? DIM : BR) : FAINT;
       ctx.fillRect(Math.round(gx), Math.round(yy + 1 * u), Math.round(18 * u), Math.max(1, Math.round(sg - 3 * u)));
     }
-    // the one ricochet this round has: READY until it skips off something
+    // glancing ricochets left on this round (three to start)
     { const ry = gy + gh + 50 * u; plate(gx - 10 * u, ry, gw, 50 * u, 0.55);
-      txt('RICOCHET', gx, ry + 16 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); txt(B.ricochets > 0 ? 'READY' : 'USED', gx, ry + 36 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); }
+      txt('RICOCHETS', gx, ry + 16 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); txt(B.ricochets > 0 ? `${B.ricochets} LEFT` : 'NONE LEFT', gx, ry + 36 * u, 8, 'left', FA, B.ricochets > 0 ? BR : DIM); }
     txt(`${Math.round(frac * 100)}%`, gx, gy + gh + 22 * u, 16, 'left');
     ctx.restore();
     // speed tape (right) on a narrow translucent strip, value and unit inside one box;
@@ -563,15 +546,6 @@ const Hud = (() => {
     ctx.fillStyle = BR; ctx.beginPath(); ctx.arc(sx + G.stick.x * sr2, sy2 - G.stick.y * sr2, 4.5 * u, 0, TAU); ctx.fill();
     txt('STEER', sx, sy2 + sr2 + 12 * u, 8, 'center', FA, DIM);
     ctx.globalAlpha = 1;
-    // the cover he is hiding behind, picked out while it blocks the round's line to him
-    const CS = G.coverScreen;
-    if (flying && G.coverBlocked && CS && CS.vis) {
-      const m = 6 * u, L = Math.max(8 * u, Math.min(CS.x1 - CS.x0, CS.y1 - CS.y0) * 0.22);
-      keepOut();
-      corners(CS.x0 * W - m, CS.y0 * H - m, CS.x1 * W + m, CS.y1 * H + m, L, DIM, 1.4);
-      if ((CS.x1 - CS.x0) * W > 30 * u) tag('COVER', CS.x0 * W - m, CS.y0 * H - m, 8, 'left', DIM);
-      ctx.restore();
-    }
     drawTargetMarks();
     // pointing steer: off him the marker is a diamond waypoint the round flies to (never drawn over him);
     // locked on him it is shown by his brackets (heavier)
@@ -591,31 +565,6 @@ const Hud = (() => {
     }
     demoBanner(G, H - 150 * u);
   }
-  // MQ-DARC VIEW (scope screens, right-hand side): the drone's feed is drawn by the display pass into
-  // insetRect; here the frame, the label, brackets on the man and a telemetry line
-  const insetRect = { x0: 0, y0: 0, x1: 0, y1: 0, n0: 0, n1: 0, m0: 0, m1: 0 };
-  let insetOn = false;
-  function droneFrame(G, x0, y0, w, h) {
-    if (!Target.S.alive) return;
-    const x1 = x0 + w, y1 = y0 + h;
-    insetRect.x0 = x0; insetRect.y0 = y0; insetRect.x1 = x1; insetRect.y1 = y1; insetOn = true;
-    insetRect.n0 = x0 / W; insetRect.n1 = x1 / W; insetRect.m0 = y0 / H; insetRect.m1 = y1 / H;   // normalised (0..1, y down)
-    ctx.strokeStyle = DK; ctx.lineWidth = 5 * u; ctx.strokeRect(Math.round(x0) - 1, Math.round(y0) - 1, Math.round(w) + 2, Math.round(h) + 2);
-    rect(x0, y0, w, h, false, BR, 1.6);
-    corners(x0 - 5 * u, y0 - 5 * u, x1 + 5 * u, y1 + 5 * u, 10 * u, BR, 1.6);
-    tag('MQ-DARC VIEW', x0 + 8 * u, y0, 8, 'left', BR);
-    const D = G.droneTgt;
-    if (D && D.vis) {
-      const px = x0 + D.x * w, py = y0 + D.y * h, k = 9 * u;
-      corners(px - k, py - k * 1.3, px + k, py + k * 1.3, 4 * u, BR, 1.6);
-    }
-    tag(`ALT ${Math.round(G.droneAlt || 0)} M`, x0 + 8 * u, y1, 8, 'left', DIM);
-    tag(G.droneSees ? 'IN SIGHT' : 'HIDDEN', x1 - 8 * u, y1, 8, 'right', G.droneSees ? BR : DIM);
-    // the shooter's direction: a white dot on the frame, drawn last so the labels never cover it
-    const Y = G.droneYou;
-    if (Y) { const px = x0 + Y.x * w, py = y0 + Y.y * h; ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(px, py, 6 * u, 0, TAU); ctx.fill(); ctx.fillStyle = BR; ctx.beginPath(); ctx.arc(px, py, 3.6 * u, 0, TAU); ctx.fill(); }
-  }
-
   // ---- attract / title -------------------------------------------------------
   // vector glyphs on a 4 x 6 grid (y down), Battlezone-style single strokes
   const GLYPH = {
@@ -693,7 +642,7 @@ const Hud = (() => {
           : [['MOUSE OR ARROWS', 'AIM'], ['SPACE OR CLICK', 'FIRE THE ROUND'], ['MOUSE OR ARROWS', STEER_MODE === 'point' ? 'MOVE THE MARKER IN FLIGHT' : 'STEER IN FLIGHT'], ['T  P', 'SENSOR  PAUSE']];
         rows.forEach((r, i) => { txt(r[0], px + pw * 0.06, rowY(i), 8, 'left', FA, DIM); txt(r[1], px + pw * 0.94, rowY(i), small, 'right'); });
       } else {
-        const rows = [['RANGE', '2 PER M'], ['CENTER MASS', '500'], ['STEERING LEFT', 'UP TO 800'], ['RICOCHET KILL', '1000'], ['STAGE BONUS', '250 X STAGE']];
+        const rows = [['RANGE', '2 PER M'], ['CENTER MASS', '500'], ['STEERING LEFT', 'UP TO 800'], ['RICOCHET KILL', '1000 EACH'], ['STAGE BONUS', '250 X STAGE']];
         rows.forEach((r, i) => { txt(r[0], px + pw * 0.06, rowY(i), small, 'left', FA, 'rgba(255,0,0,0.85)'); txt(r[1], px + pw * 0.94, rowY(i), small, 'right'); });
       }
     }
@@ -893,7 +842,7 @@ const Hud = (() => {
     cur.push(G.state, G.paused ? 1 : 0, G.mode, G.toastT > 0 ? G.toast : '', Math.floor(t * 2), Math.floor(t * 2.4), Math.floor(t * 3), Math.floor(t * 4), Math.floor(t * 6), Math.floor((t % 1) / 0.8) + Math.floor(t) * 2,
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
-      q(G.reticleOff.x * H), q(G.reticleOff.y * H), G.droneTgt ? q(G.droneTgt.x * 600) : 0, G.droneTgt ? q(G.droneTgt.y * 600) : 0, G.droneSees ? 1 : 0, q(G.droneAlt || 0), G.droneYou ? q(G.droneYou.x * 600) : 0, G.droneYou ? q(G.droneYou.y * 600) : 0, G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
+      q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
       G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
@@ -905,7 +854,6 @@ const Hud = (() => {
     const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam';
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
-    insetOn = false;   // the scope screens set it again when they draw the drone feed
     buttons.length = 0; G_ref = G;
     ctx.clearRect(0, 0, W, H);
     switch (G.state) {
@@ -928,5 +876,5 @@ const Hud = (() => {
     }
     tex.needsUpdate = true;
   }
-  return { cv, tex, resize, draw, setTouch, buttons, get touch() { return touch; }, get u() { return u; }, get insetRect() { return insetOn ? insetRect : null; } };
+  return { cv, tex, resize, draw, setTouch, buttons, get touch() { return touch; }, get u() { return u; } };
 })();
