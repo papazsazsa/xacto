@@ -94,7 +94,8 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { Input.dx += (t.clientX - Input.touchAim.x) * 1.6; Input.dy += (t.clientY - Input.touchAim.y) * 1.6; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
+  // (in flight the marker moves a little less than the finger, for fine control; the scope keeps its own feel)
+  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { const g = G.state === 'flight' ? 1.1 : 1.6; Input.dx += (t.clientX - Input.touchAim.x) * g; Input.dy += (t.clientY - Input.touchAim.y) * g; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
 }, { passive: false });
 function touchEnd(e) {
   Sfx.init();   // iOS unlocks audio on touchend
@@ -236,7 +237,7 @@ function fire() {
   FX.muzzle(origin.clone().addScaledVector(dir, 1.4), dir);
   Sfx.shot(); G.flash = 0.9; Aim.recoilV = 0.9;
   G.stick.set(0, 0); G.nearMisses = 0; G.nearCool = 0; G.shake = 0; G.passedT = -1; G.locked = false;
-  camK.init = false; PLAN.ok = false; PLAN.tried = false; G.braked = false; G.tLock = false; G.tLockOff = 0; G.stampT = 0; G.stampText = 'GUIDANCE ACTIVE'; G.ricoT = 0; G.pathReset = true; G.recede = 0; G.aimSpent = false; RP.u = 0; G.losK = 0;
+  camK.init = false; PLAN.ok = false; PLAN.tried = false; G.braked = false; G.tLock = false; G.tLockOff = 0; G.hidK = 0; G.lockDrag = 0; G.stampT = 0; G.stampText = 'GUIDANCE ACTIVE'; G.ricoT = 0; G.pathReset = true; G.recede = 0; G.aimSpent = false; RP.u = 0; G.losK = 0;
   setState('shot');
 }
 function scoreHit(ev) {
@@ -405,7 +406,9 @@ function pointSteerAt(p, v, out, goal = G.aimTgt) {
   aimE.multiplyScalar(1 / d);
   const ex = aimE.dot(aimR), ey = aimE.dot(aimU), ez = aimE.dot(aimF), m = Math.hypot(ex, ey);
   if (m < 1e-6) return out.set(0, 0);
-  const ang = Math.atan2(m, ez), T = clamp((d / sp) * 0.6, 0.12, 0.45), acc = sp * ang / T;
+  // touch, steering to the marker: a softer response (it settles onto the marker instead of snapping at it)
+  const soft = Hud.touch && goal === G.aimTgt && !G.tLock;
+  const ang = Math.atan2(m, ez), T = clamp((d / sp) * 0.6, soft ? 0.22 : 0.12, soft ? 0.6 : 0.45), acc = sp * ang / T;
   const auth = Math.max(1, Bullet.authority());
   out.set((ex / m) * acc / auth, (ey / m) * acc / auth); if (out.length() > 1) out.normalize();
   return Bullet.unshape(out.x, out.y, out);
@@ -438,7 +441,8 @@ function aimUpdate(rdt, input) {
       // touch: the marker snaps onto him from twice as far; a moving target half as far again
       const lr = 30 * innerHeight / 720 * (Hud.touch ? 2.5 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1);
       if (px > lr * 2) G.aimArmed = true;
-      if (G.aimArmed && px < lr) G.aimLock = true;
+      // (touch: only when the round can actually see him, so it never snaps into a wall he is behind)
+      if (G.aimArmed && px < lr && (!Hud.touch || clearLine(Bullet.S.p, c, 0.3, true))) G.aimLock = true;
     }
   }
   const tgo = Bullet.S.p.distanceTo(c) / Math.max(20, Bullet.S.v.length());
@@ -1176,7 +1180,11 @@ function tick(rdt) {
       if (G.auto || G.demo) autoMarker();
       // once the terminal lock has the target the round flies itself in: drags and taps are ignored until the
       // lock lets go, so a hand on the controls can't pull it off and loop it round the target
-      else if (POINT) { const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, false); } }
+      else if (POINT) {
+        // touch: a deliberate drag while locked takes the round back (the lock stays off for a moment)
+        if (Hud.touch && G.tLock) { G.lockDrag = (G.lockDrag || 0) + Math.hypot(Input.dx, Input.dy); if (G.lockDrag > 45) { G.tLock = false; G.tLockOff = 1.2; G.aimLock = false; } } else G.lockDrag = 0;
+        const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, false); }
+      }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
       // last-ditch terminal lock: close in, roughly pointed at him, with an open line to him (glass counts as
@@ -1189,7 +1197,9 @@ function tick(rdt) {
           const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1;
           // the helicopter: twice the reach, so the round can lock on behind it and follow it round a corner
           const hk = Target.S.type === 'heli' ? 2 : 1;
-          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 20 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
+          // touch: a modest boost only, so the lock just finishes a shot already lined up instead of grabbing the
+          // round from far off; and a deliberate drag lets go of it (below)
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.4 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 8 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
           const sees = dd < reach * 2.5 && clearLine(Bs.p, c, 0.15, true);
           const off = Math.acos(clamp(TL1.dot(TL2), -1, 1));
@@ -1228,6 +1238,9 @@ function tick(rdt) {
       G.ricoT = Math.max(0, (G.ricoT || 0) - rdt); G.timeScale *= 1 - 0.5 * clamp(G.ricoT / 0.6, 0, 1);
       // touch: the last stretch runs a third slower, so a thumb has time to react as the round goes round him
       if (Hud.touch) G.timeScale *= lerp(0.67, 1, sstep(30, 90, remaining));
+      // touch: while the target is out of the round's sight (behind something), time runs slower still, so a
+      // thumb has time to steer round to it
+      if (Hud.touch) { G.hidK = damp(G.hidK || 0, Target.S.alive && !clearLine(B.p, Target.chest, 0.3, true) ? 1 : 0, 3, rdt); G.timeScale *= lerp(1, 0.6, G.hidK); }
       // moving away from him: a miss once it has gone on for a while (quickly once the round can't steer)
       G.recede = along < 0 ? (G.recede || 0) + rdt : 0;
       gdt = rdt * G.timeScale;
@@ -1340,7 +1353,18 @@ function tick(rdt) {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   project(Target.chest, G.tgtScreen);
   guideUpdate(rdt);
-  if (G.mission) { Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false; }   // fire mission: the trucks have their own brackets
+  if (G.mission) {   // fire mission: the trucks have their own brackets
+    Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false;
+    // the arrow at the scope's rim points at the nearest target not yet locked (nearest to the scope's line)
+    let best = null, bd = 9; camera.getWorldDirection(fwd);
+    Mortar.M.trucks.forEach((tr, i) => {
+      if (!tr.alive || Mortar.M.locks.includes(i)) return;
+      const a = Math.acos(clamp(tmpV2.copy(tr.p).setY(tr.p.y + 1).sub(camera.position).normalize().dot(fwd), -1, 1));
+      if (a < bd) { bd = a; best = tr; }
+    });
+    G.msnScreen = G.msnScreen || {};
+    if (best) project(tmpV2.copy(best.p).setY(best.p.y + 1), G.msnScreen); else { G.msnScreen.vis = false; G.msnScreen.off = false; }
+  }
   // a car or a quadcopter: its brackets frame its whole box on screen
   G.tgtScreen.bw = 0;
   if (Target.S.type !== 'man' && Target.S.alive && G.tgtScreen.vis) {

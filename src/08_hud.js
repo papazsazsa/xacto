@@ -376,8 +376,10 @@ const Hud = (() => {
       }
     }
     if (!hideMarkers && G.mission) missionMarks(G, cx, cy, Rr);
-    if (!hideMarkers && (G.tgtScreen.off || (G.tgtScreen.vis && Math.hypot(G.tgtScreen.x * W - cx, (1 - G.tgtScreen.y) * H - cy) > Rr))) {
-      const a = G.tgtScreen.off ? G.tgtScreen.ang : Math.atan2(G.tgtScreen.y * H - H / 2, G.tgtScreen.x * W - W / 2);
+    // the arrow at the rim toward a target outside the scope (fire mission: the nearest one not yet locked)
+    const ts = G.mission ? G.msnScreen : G.tgtScreen;
+    if (!hideMarkers && ts && (ts.off || (ts.vis && Math.hypot(ts.x * W - cx, (1 - ts.y) * H - cy) > Rr))) {
+      const a = ts.off ? ts.ang : Math.atan2(ts.y * H - H / 2, ts.x * W - W / 2);
       const px = cx + Math.cos(a) * (Rr - 30 * u), py = cy - Math.sin(a) * (Rr - 30 * u);
       ctx.save(); ctx.translate(px, py); ctx.rotate(-a);
       if (blink(2)) { ctx.fillStyle = BR; ctx.strokeStyle = DK; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.moveTo(16 * u, 0); ctx.lineTo(-8 * u, -11 * u); ctx.lineTo(-3 * u, 0); ctx.lineTo(-8 * u, 11 * u); ctx.closePath(); ctx.stroke(); ctx.fill(); }
@@ -936,6 +938,7 @@ const Hud = (() => {
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
       G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1,
+      G.mission && G.msnScreen ? q(G.msnScreen.x * W) * 3 + q(G.msnScreen.y * H) * 5 + (G.msnScreen.off ? 1 : 0) : -2,
       G.guideScr ? G.guideScr.length * 7 + q((G.guideScr[0] || 0) * W) * 13 + q((G.guideScr[1] || 0) * H) * 17 + q((G.guideScr[G.guideScr.length - 3] || 0) * W) : -1);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;

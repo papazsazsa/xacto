@@ -58,7 +58,7 @@ Close to the target, with an open line to it and the round pointed roughly at it
 
 1. **Reach and cone.** They shrink with the stage. Moving targets get a little more, the helicopter twice the reach, touch 2.2 times the reach.
 2. **Lead.** It aims where the target will be when the round arrives, using time to go from the closing speed. A drone's bob and sway are predicted exactly (`Target.predict`); leading a drone along its present velocity overshot every turn of the bob and looped the round round it.
-3. **Hands off.** While the lock holds, drags and taps are ignored and the marker sits on the target, so a hand on the controls can't pull the round off.
+3. **Hands off.** While the lock holds, drags and taps are ignored and the marker sits on the target, so a hand on the controls can't pull the round off (on touch, a deliberate drag lets go of the lock instead).
 4. **Hold and release.** The lock holds while the round can see the target. If the round has gone past (the target more than 80° off its nose), the lock lets go and stays off for a second, so the round never circles back in a loop.
 
 ## Suggested path (a stage's last two rounds)
@@ -69,17 +69,17 @@ When the magazine is down to its last two rounds (the 4th and 5th shot at the sa
 
 A finger cannot make the fine last-moment corrections a mouse can, so on touch:
 
-1. The terminal lock reaches 2.2 times as far and its cone is 20° wider.
-2. The last 90 m of the flight run up to a third slower, giving more time to react as the round goes round the target.
-3. The marker snaps onto the target from 2.5 times as far, and a tap on the target locks it.
-4. The marker moves less per finger travel as the round closes in.
-5. Men only ever stand on roofs: a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Machines, the helicopter and fire missions are the same as on desktop.
+1. **Time runs slower.** The last 90 m of a flight run up to a third slower, and while the target is out of the round's sight (behind something) time runs at 0.6 of that again. Measured on a stage 3 flight: a time scale of about 0.38 while the target is hidden (desktop 0.74).
+2. **Gentler steering.** In flight the marker moves 1.1 times the finger's travel (1.6 in the scope), less still as the round closes in, and the round settles onto the marker more softly (`soft` in `pointSteerAt`).
+3. **A modest lock that never fights.** The terminal lock reaches 1.4 times as far and its cone is 8° wider, so it only finishes a shot that is already lined up. A deliberate drag while locked (45 px) lets go of it for 1.2 s and the controls are the player's.
+4. **Marker snap.** The marker snaps onto the target from 2.5 times as far, but only when the round can see the target, so it never pulls the round into a wall the target is behind. A tap on the target still locks the marker onto it.
+5. **Men only on roofs:** a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Technicals, drones, the helicopter and fire missions are the same as on desktop.
 
-With a bot that plays coarser and slower than the desktop bot (about touch quality), stages 3 to 7 hit about 80% on both.
+With a bot that plays coarser and slower than the desktop bot (about touch quality), stages 3 to 7 hit about 82% on touch and 80% on desktop; drones about 93% on touch, with no loops.
 
 ## Fire mission (stages 5, 15, 25)
 
-This is a reward round with no skill test. Tap or click three targets to lock them, then HANG IT... (2 s, blinking), then FIRE!. The camera rides the mortar bomb up its arc. At the apex it splits into three cones that dive onto the targets (and follow them if they move). The sight is an M3 binocular reticle with an aiming ring.
+This is a reward round with no skill test. Tap or click three targets to lock them, then HANG IT... (2 s, blinking), then FIRE!. The camera rides the mortar bomb up its arc. At the apex it splits into three cones that dive onto the targets (and follow them if they move). The sight is an M3 binocular reticle with an aiming ring, and an arrow at the scope's rim points to the nearest target not yet locked when it is outside the scope.
 
 Five set-ups come in a shuffled rotation. `?mission=<name>` in the link forces one:
 
