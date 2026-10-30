@@ -45,7 +45,7 @@ Measured with the human-like bot (tools/bots/stages.js, 3 seeds × 10 shots), th
 
 ## The helicopter (stages 10, 20, 30)
 
-1. **On the pad.** It sits on a tower's helipad in view, or on a pad painted on a big tall roof if none is in view, with the rotor turning slowly.
+1. **On the pad.** It sits on a tower's helipad in view. With none in view it gets a pad painted on a clear stretch of a big tall roof, and failing that a raised helideck built on a roof over whatever plant is up there, so a helicopter stage always has its helicopter. The rotor turns slowly.
 2. **Off at the first shot.** It lifts off the moment you fire, drops into the street canyons and runs through the city on the street grid. It turns at the crossings (mostly away from you, off the main avenue, never revisiting a crossing) and hops over anything across the street.
 3. **Path following.** It chases a "carrot" point 22 m ahead on the street centre lines, turns no faster than 1 rad/s and slows for corners. The round can always out-turn it, so the two never circle each other.
 4. **Speed.** Top speed is about 27, 31 and 35 m/s on stages 10, 20 and 30.
