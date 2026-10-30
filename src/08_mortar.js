@@ -237,31 +237,22 @@ const Mortar = (() => {
   function camera(rdt, cam) {
     const want = T1, look = T2;
     let rigid = false, rate = 6;
-    const pre = M.phase === 'up' && M.t > M.ta - 1.4, post = M.phase === 'down' && M.t - M.splitT < 0.9;
-    if (pre || post) {
-      // the split shot: held out beside the top of the arc, about 15 m off, watching the nose open and the
-      // three cones peel apart
-      const f = T3.set(M.center.x - M.apex.x, 0, M.center.z - M.apex.z).normalize(), side = T4.crossVectors(f, UPV).normalize();
-      want.copy(M.apex).addScaledVector(f, -11).addScaledVector(side, 10).addScaledVector(UPV, 3.5);
-      if (post && M.cones.length) { look.set(0, 0, 0); for (const c of M.cones) look.add(c.p); look.multiplyScalar(1 / M.cones.length); }
-      else look.copy(bombP);
-      rate = 6;
-    } else if (M.phase === 'up' || (M.phase === 'down' && !M.cones.length)) {
-      // behind and a little above the bomb, looking ahead and down over the city toward the targets, so the
-      // bomb climbs through the bottom of the frame with the streets below
+    if (M.phase === 'up' || (M.phase === 'down' && !M.cones.length)) {
+      // right behind the bomb the whole way up, the bomb held in the middle of the frame with the city ahead
+      // and below, so the split happens in front of you
       const f = T3.set(M.center.x - bombP.x, 0, M.center.z - bombP.z).normalize(), side = T4.crossVectors(f, UPV).normalize();
-      want.copy(bombP).addScaledVector(f, -7).addScaledVector(UPV, 2.2).addScaledVector(side, 1.6);
-      look.copy(bombP).addScaledVector(f, 22).addScaledVector(UPV, -9);
-      look.lerp(M.center, sstep(M.ta - 1.4, M.ta, M.t) * 0.85);
+      want.copy(bombP).addScaledVector(f, -7).addScaledVector(UPV, 2.2).addScaledVector(side, 1.2);
+      look.copy(bombP).addScaledVector(f, 22).addScaledVector(UPV, -6.8).addScaledVector(side, 0.4);
       rigid = true;
     } else if (M.phase === 'down') {
-      // ride one cone down: just behind it, the targets ahead
+      // straight on from behind the bomb to behind one cone (no cut): the camera glides in over about a
+      // second while the view turns down from the cones' path to the targets, then holds tight on the cone
       const c = M.cones.find((q) => !q.hit && q.ti === M.locks[1]) || M.cones.find((q) => !q.hit) || M.cones[0];
       bezD(c, Math.max(0.001, Math.pow(Math.min(1, c.t / c.D), 1.5)), T3).normalize();
+      const since = M.t - M.splitT;
       want.copy(c.p).addScaledVector(T3, -6).addScaledVector(UPV, 1.4);
-      look.copy(M.center);
-      // swing in from the split shot over half a second, then hold tight behind the cone
-      if (M.t - M.splitT < 1.5) rate = 7; else rigid = !c.hit;
+      look.copy(c.p).addScaledVector(T3, 20).lerp(M.center, sstep(0.25, 1.3, since));
+      if (since < 1.3) rate = 5; else rigid = !c.hit;
     } else {
       orbit += rdt * 0.12;
       want.set(M.center.x + Math.sin(orbit) * 42, 26, M.center.z + 40 * Math.cos(orbit));
