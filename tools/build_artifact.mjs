@@ -18,3 +18,7 @@ const mobile = s.replace(/^<title>[^<]*<\/title>/, '<title>XACTO Mobile</title>\
 fs.writeFileSync(path.join(root, 'dist', 'xacto_web.html'), web);
 fs.writeFileSync(path.join(root, 'dist', 'xacto_mobile.html'), mobile);
 console.log('web page dist/xacto_web.html, mobile page dist/xacto_mobile.html');
+// the public page on GitHub Pages (served from /docs on main): the full standalone build
+fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+fs.copyFileSync(full, path.join(root, 'docs', 'index.html'));
+console.log('GitHub Pages page docs/index.html');
