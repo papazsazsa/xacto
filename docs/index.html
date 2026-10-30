@@ -7413,8 +7413,7 @@ canvas.addEventListener('touchstart', (e) => {
 }, { passive: false });
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
-  // (in flight the marker moves a little less than the finger, for fine control; the scope keeps its own feel)
-  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { const g = G.state === 'flight' ? 1.1 : 1.6; Input.dx += (t.clientX - Input.touchAim.x) * g; Input.dy += (t.clientY - Input.touchAim.y) * g; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
+  for (const t of e.changedTouches) if (Input.touchAim && t.identifier === Input.touchAim.id) { Input.dx += (t.clientX - Input.touchAim.x) * 1.6; Input.dy += (t.clientY - Input.touchAim.y) * 1.6; Input.touchAim.x = t.clientX; Input.touchAim.y = t.clientY; }
 }, { passive: false });
 function touchEnd(e) {
   Sfx.init();   // iOS unlocks audio on touchend
@@ -7725,9 +7724,7 @@ function pointSteerAt(p, v, out, goal = G.aimTgt) {
   aimE.multiplyScalar(1 / d);
   const ex = aimE.dot(aimR), ey = aimE.dot(aimU), ez = aimE.dot(aimF), m = Math.hypot(ex, ey);
   if (m < 1e-6) return out.set(0, 0);
-  // touch, steering to the marker: a softer response (it settles onto the marker instead of snapping at it)
-  const soft = Hud.touch && goal === G.aimTgt && !G.tLock;
-  const ang = Math.atan2(m, ez), T = clamp((d / sp) * 0.6, soft ? 0.22 : 0.12, soft ? 0.6 : 0.45), acc = sp * ang / T;
+  const ang = Math.atan2(m, ez), T = clamp((d / sp) * 0.6, 0.12, 0.45), acc = sp * ang / T;
   const auth = Math.max(1, Bullet.authority());
   out.set((ex / m) * acc / auth, (ey / m) * acc / auth); if (out.length() > 1) out.normalize();
   return Bullet.unshape(out.x, out.y, out);
@@ -8502,7 +8499,7 @@ function tick(rdt) {
       else if (POINT) {
         // touch: a deliberate drag while locked takes the round back (the lock stays off for a moment)
         if (Hud.touch && G.tLock) { G.lockDrag = (G.lockDrag || 0) + Math.hypot(Input.dx, Input.dy); if (G.lockDrag > 45) { G.tLock = false; G.tLockOff = 1.2; G.aimLock = false; } } else G.lockDrag = 0;
-        const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, false); }
+        const free = !G.tLock; if (Input.tap && !botOn && free) touchMarker(Input.tap); aimUpdate(rdt, !botOn && free); if (botOn && free) { window.__X.bot(G, rdt); aimUpdate(rdt, !!window.__X.botFinger); }   // (botFinger: a test bot that drags like a thumb)
       }
       else if (botOn) window.__X.bot(G, rdt);
       if (POINT || G.auto || G.demo) pointSteerAt(Bullet.S.p, Bullet.S.v, G.stick);
@@ -8516,9 +8513,8 @@ function tick(rdt) {
           const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1;
           // the helicopter: twice the reach, so the round can lock on behind it and follow it round a corner
           const hk = Target.S.type === 'heli' ? 2 : 1;
-          // touch: a modest boost only, so the lock just finishes a shot already lined up instead of grabbing the
-          // round from far off; and a deliberate drag lets go of it (below)
-          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.4 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 8 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
+          // touch: a bigger lock field and a wider cone (a deliberate drag lets go of the lock, below)
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 2.2 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 20 : 0) + (mv ? 8 : 0) + (hk > 1 ? 10 : 0)) * DEG;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
           const sees = dd < reach * 2.5 && clearLine(Bs.p, c, 0.15, true);
           const off = Math.acos(clamp(TL1.dot(TL2), -1, 1));

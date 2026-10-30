@@ -70,8 +70,8 @@ When the magazine is down to its last two rounds (the 4th and 5th shot at the sa
 A finger cannot make the fine last-moment corrections a mouse can, so on touch:
 
 1. **Time runs slower.** The last 90 m of a flight run up to a third slower, and while the target is out of the round's sight (behind something) time runs at 0.6 of that again. Measured on a stage 3 flight: a time scale of about 0.38 while the target is hidden (desktop 0.74).
-2. **Gentler steering.** In flight the marker moves 1.1 times the finger's travel (1.6 in the scope), less still as the round closes in, and the round settles onto the marker more softly (`soft` in `pointSteerAt`).
-3. **A modest lock that never fights.** The terminal lock reaches 1.4 times as far and its cone is 8° wider, so it only finishes a shot that is already lined up. A deliberate drag while locked (45 px) lets go of it for 1.2 s and the controls are the player's.
+2. **Marker.** In flight the marker moves 1.6 times the finger's travel, less as the round closes in. (A gentler 1.1 with a softer response was tried and made easy targets hard to hit: the thumb bot fell from 90% to 54%.)
+3. **Lock.** The terminal lock reaches 2.2 times as far and its cone is 20° wider. A deliberate drag while locked (45 px) lets go of it for 1.2 s, so it never fights the player.
 4. **Marker snap.** The marker snaps onto the target from 2.5 times as far, but only when the round can see the target, so it never pulls the round into a wall the target is behind. A tap on the target still locks the marker onto it.
 5. **Men only on roofs:** a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Technicals, drones, the helicopter and fire missions are the same as on desktop.
 
@@ -135,7 +135,8 @@ The modules in `src/` are concatenated in name order into one `<script type="mod
    5. `spawns.js` – spawn success, heights and distances per spot kind.
    6. `touch.js` – stages 3 to 7 with a desktop-like bot and a coarser, slower touch-like bot.
    7. `heli_chase.js` – helicopter shots traced through the terminal lock (`__CHASE=1` steers straight at it once it is in sight).
-   8. `drones.js` – drone shots with a bot that taps to lock as soon as it can see the drone, and one that keeps steering by hand close in; counts loops and locks held with the drone behind the round (`__TOUCH=1` for touch).
+   8. `thumb.js` – the closest thing to a person on a phone: it steers by dragging through the real touch input path (finger travel, gain, wobble, 0.3 s reaction), on stages 1 to 6 (`__GAIN` = the build's flight drag gain). Run it before and after any change to touch steering.
+   9. `drones.js` – drone shots with a bot that taps to lock as soon as it can see the drone, and one that keeps steering by hand close in; counts loops and locks held with the drone behind the round (`__TOUCH=1` for touch).
    Headless runs use SwiftShader. Use `sim()` (no rendering) for bots. A run of 30 shots takes a few minutes.
 5. **Test hooks on `window.__X`:** `startAt(stage)`, `sim(sec)`, `advance(sec)`, `spawnKind(kind)`, `aimAt(v)`, `aimAtTarget()`, `fire()`, `planHidden()`, `RP` (route), `flyable(slack)`, `routeFollow`, `setAim`, `bot` (per-frame callback), `look(p, t, fov)` (free camera), `setState`, plus the modules (`G`, `City`, `Target`, `Bullet`, `Mortar`, `Hud`, `Input`, …). `Mortar.M.force = '<set-up>'` forces a fire mission set-up.
 
