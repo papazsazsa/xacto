@@ -6035,14 +6035,15 @@ const Hud = (() => {
     corners(x0, y0, x1, y1, len, DK, lw + 2.2);
     corners(x0, y0, x1, y1, len, RD, lw);
   }
-  // the suggested path (a stage's last two rounds): red dots on dark, nearer ones bigger; inside the scope
-  // circle when one is given
+  // the suggested path (a stage's last two rounds): red dots on a thin dark edge, drawn at their perspective
+  // size (they shrink with distance) between a small speck and a modest cap; inside the scope circle when one
+  // is given
   function guideDots(G, cx, cy, Rr) {
     const S = G.guideScr; if (!S || !S.length) return;
     ctx.save(); if (Rr) { ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip(); }
     for (let i = 0; i < S.length; i += 3) {
-      const x = S[i] * W, y = S[i + 1] * H, r = clamp(70 * u / Math.sqrt(Math.max(1, S[i + 2])), 1.8 * u, 5.5 * u);
-      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + 1.5 * u, 0, TAU); ctx.fill();
+      const x = S[i] * W, y = S[i + 1] * H, r = clamp(S[i + 2] * H, 0.8 * u, 2.75 * u);
+      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + Math.max(0.6, 0.35 * r), 0, TAU); ctx.fill();
       ctx.fillStyle = RD; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     }
     ctx.restore();
@@ -7955,11 +7956,14 @@ function guideUpdate(rdt) {
     GUIDE.i = bi; i0 = bi + 1;
   }
   camera.getWorldDirection(fwd);
+  // each dot is a ball 0.5 m across in the world, so it shrinks with distance like everything else (scope
+  // magnification included); the HUD caps how big and how small it draws
+  const k = 0.25 / (2 * Math.tan(camera.fov * DEG / 2));
   for (let i = i0; i < P.length; i++) {
     if (tmpV2.subVectors(P[i], camera.position).dot(fwd) < 1) continue;
     if (fl && (tmpV2.subVectors(P[i], B.p).dot(B.v) < 0 || P[i].distanceTo(Target.chest) > B.p.distanceTo(Target.chest) + 8)) continue;
     ndc.copy(P[i]).project(camera); if (Math.abs(ndc.x) > 1.1 || Math.abs(ndc.y) > 1.1) continue;
-    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, P[i].distanceTo(camera.position));
+    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, k / Math.max(0.1, P[i].distanceTo(camera.position)));   // radius as a share of screen height
   }
   G.guideScr = GUIDE.scr;
 }

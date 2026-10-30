@@ -63,7 +63,7 @@ Close to the target, with an open line to it and the round pointed roughly at it
 
 ## Suggested path (a stage's last two rounds)
 
-When the magazine is down to its last two rounds (the 4th and 5th shot at the same target), a line of red dots shows the planned route. The dots run from the rifle out to the gate and on in to the target, or straight at a target in the open. They are drawn in the scope and in flight, and in flight only the dots still ahead of the round show. The route is re-planned when each of those rounds comes up, every 2.5 s while a machine is on the move, and at the shot for a machine (`GUIDE`, `guideBuild()` and `guideUpdate()` in `09_game.js`; `guideDots()` in `08_hud.js`). A kill refills the magazine, so the dots only appear after misses.
+When the magazine is down to its last two rounds (the 4th and 5th shot at the same target), a line of red dots shows the planned route. The dots run from the rifle out to the gate and on in to the target, or straight at a target in the open. Each dot is drawn at the perspective size of a ball 0.5 m across, so it shrinks with distance (scope magnification included), between a small speck and a cap of 2.75 HUD units. They are drawn in the scope and in flight, and in flight only the dots still ahead of the round show. The route is re-planned when each of those rounds comes up, every 2.5 s while a machine is on the move, and at the shot for a machine (`GUIDE`, `guideBuild()` and `guideUpdate()` in `09_game.js`; `guideDots()` in `08_hud.js`). A kill refills the magazine, so the dots only appear after misses.
 
 ## Touch assists (phones and tablets)
 

@@ -113,14 +113,15 @@ const Hud = (() => {
     corners(x0, y0, x1, y1, len, DK, lw + 2.2);
     corners(x0, y0, x1, y1, len, RD, lw);
   }
-  // the suggested path (a stage's last two rounds): red dots on dark, nearer ones bigger; inside the scope
-  // circle when one is given
+  // the suggested path (a stage's last two rounds): red dots on a thin dark edge, drawn at their perspective
+  // size (they shrink with distance) between a small speck and a modest cap; inside the scope circle when one
+  // is given
   function guideDots(G, cx, cy, Rr) {
     const S = G.guideScr; if (!S || !S.length) return;
     ctx.save(); if (Rr) { ctx.beginPath(); ctx.arc(cx, cy, Rr, 0, TAU); ctx.clip(); }
     for (let i = 0; i < S.length; i += 3) {
-      const x = S[i] * W, y = S[i + 1] * H, r = clamp(70 * u / Math.sqrt(Math.max(1, S[i + 2])), 1.8 * u, 5.5 * u);
-      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + 1.5 * u, 0, TAU); ctx.fill();
+      const x = S[i] * W, y = S[i + 1] * H, r = clamp(S[i + 2] * H, 0.8 * u, 2.75 * u);
+      ctx.fillStyle = DK; ctx.beginPath(); ctx.arc(x, y, r + Math.max(0.6, 0.35 * r), 0, TAU); ctx.fill();
       ctx.fillStyle = RD; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     }
     ctx.restore();

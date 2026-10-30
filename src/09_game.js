@@ -654,11 +654,14 @@ function guideUpdate(rdt) {
     GUIDE.i = bi; i0 = bi + 1;
   }
   camera.getWorldDirection(fwd);
+  // each dot is a ball 0.5 m across in the world, so it shrinks with distance like everything else (scope
+  // magnification included); the HUD caps how big and how small it draws
+  const k = 0.25 / (2 * Math.tan(camera.fov * DEG / 2));
   for (let i = i0; i < P.length; i++) {
     if (tmpV2.subVectors(P[i], camera.position).dot(fwd) < 1) continue;
     if (fl && (tmpV2.subVectors(P[i], B.p).dot(B.v) < 0 || P[i].distanceTo(Target.chest) > B.p.distanceTo(Target.chest) + 8)) continue;
     ndc.copy(P[i]).project(camera); if (Math.abs(ndc.x) > 1.1 || Math.abs(ndc.y) > 1.1) continue;
-    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, P[i].distanceTo(camera.position));
+    GUIDE.scr.push((ndc.x + 1) / 2, (1 - ndc.y) / 2, k / Math.max(0.1, P[i].distanceTo(camera.position)));   // radius as a share of screen height
   }
   G.guideScr = GUIDE.scr;
 }
