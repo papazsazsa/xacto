@@ -792,6 +792,7 @@ void main(){
   // round 4 a man way up on top of one of the tallest towers. After that a technical and a quadcopter each
   // turn up about once every 6 to 8 stages.
   let bag = [], lastKind = '', nextCar = 9, nextQuad = 5, lastMachine = 2;
+  const roofsOnly = () => MOBILE || (typeof Hud !== 'undefined' && Hud.touch);
   function schedule() { nextCar = 8 + Math.floor(gameRand() * 3); nextQuad = 4 + Math.floor(gameRand() * 3); lastMachine = 2; }
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
@@ -801,7 +802,9 @@ void main(){
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
     // up high (roof, tower, ledge) about three times in five
-    const p = pressure(stage), kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage <= 3 ? ['roof', 'roof', 'street', 'awning']
+    // phones and tablets: men only ever on roofs (a lower roof behind taller buildings, or a tower top)
+    const p = pressure(stage), kinds = roofsOnly() ? (stage <= 3 || p >= 0.6 ? ['roof'] : ['roof', 'roof', 'tower'])
+      : stage <= 1 ? ['roof', 'street', 'roof'] : stage <= 3 ? ['roof', 'roof', 'street', 'awning']
       : ['roof', 'ledge', 'street', 'awning', ...(p < 0.6 ? ['tower'] : []), ...(p >= 0.3 ? ['ledge', 'awning'] : []), ...(p >= 0.6 ? ['street'] : [])];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
@@ -965,9 +968,10 @@ void main(){
     if (want === 'tower' || want === 'ledge') {
       if ((want === 'tower' ? spawnTower : spawnLedge)(stage)) return true;
       if (opts.kind) return false;
-      if ((want === 'tower' ? spawnLedge : spawnTower)(stage)) return true;
+      if (want === 'ledge' || !roofsOnly()) { if ((want === 'tower' ? spawnLedge : spawnTower)(stage)) return true; }
     }
-    const base = want === 'tower' || want === 'ledge' ? 'roof' : want, order = [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];
+    const base = want === 'tower' || want === 'ledge' ? 'roof' : want;
+    const order = roofsOnly() && !opts.kind ? ['roof'] : [base, ...['street', 'awning', 'roof'].filter((k) => k !== base)];   // (phones: roofs only)
     const first = hiddenBand(stage), s1 = Math.max(1, stage) - 1, widest = [230, Math.min(950, 450 + 70 * s1) + 80];
     const bands = [first, [first[0] - 120, first[1] + 120], widest];
     for (let bi = 0; bi < bands.length; bi++) {

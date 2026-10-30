@@ -60,6 +60,7 @@ A finger cannot make the fine last-moment corrections a mouse can, so on touch:
 2. The last 90 m of the flight run up to a third slower, giving more time to react as the round goes round the target.
 3. The marker snaps onto the target from 2.5 times as far, and a tap on the target locks it.
 4. The marker moves less per finger travel as the round closes in.
+5. Men only ever stand on roofs: a lower roof behind taller buildings, or a tower top (`roofsOnly()` in `05_target.js`, true when `MOBILE` or after the first touch). No street, awning or ledge spots. Machines, the helicopter and fire missions are the same as on desktop.
 
 With a bot that plays coarser and slower than the desktop bot (about touch quality), stages 3 to 7 hit about 80% on both.
 
