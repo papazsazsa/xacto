@@ -726,7 +726,7 @@ void main(){
     S.hide = null; S.app = null; S.alertT = 0; S.spot = null; S.wary = 0; S.base = null; S.evT = 0;
     S.char = opts.char || pickChar(); S.packGone = false;
     // the first target: always in the open, close to where the scope starts out pointing
-    if (stage <= 1 && !opts.kind) return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts));
+    if (stage <= 1 && !opts.kind) { schedule(); return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts)); }
     if (opts.hidden !== false && spawnHidden(stage, opts)) return true;
     if (opts.cover !== false && spawnCover(stage, opts)) return true;
     return spawnOpen(stage, opts);
@@ -786,11 +786,17 @@ void main(){
     return null;
   }
   function rayLen(x, y, z, dx, dz, len) { _hdir.set(dx, 0, dz).normalize(); return City.raycast(_hs.set(x, y, z), _hdir, len) ? City.hit.t : len; }
-  // Spot types come out of a shuffled bag (no type twice in a row); cars and quadcopters join from stage 3.
-  let bag = [], lastKind = '';
+  // What the target is, stage by stage. Mostly a man in a tight spot (roof, street, under an awning) from a
+  // shuffled bag, no spot type twice in a row. Round 2 is a technical out on the main avenue. After that a
+  // technical and a quadcopter each turn up about once every 6 to 8 stages.
+  let bag = [], lastKind = '', nextCar = 9, nextQuad = 5, lastMachine = 2;
+  function schedule() { nextCar = 8 + Math.floor(gameRand() * 3); nextQuad = 4 + Math.floor(gameRand() * 3); lastMachine = 2; }
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'car', 'quad', 'highway'];
+    const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
+    if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
+    if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : ['roof', 'street', 'awning'];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -1566,6 +1572,15 @@ void main(){
   }
   const carG = new THREE.Group(), quadG = new THREE.Group(); carG.visible = quadG.visible = false; group.add(carG, quadG);
   const carMeshes = rigMeshes(CAR_PARTS, carMat), quadMeshes = rigMeshes(QUAD_PARTS, quadMat);
+  // a separate technical (shared geometry and materials) for the fire mission
+  function truckMesh() {
+    const g = new THREE.Group();
+    for (const m of carMeshes) {
+      const c = new THREE.Mesh(m.geometry, m.material); c.position.copy(m.userData.home); c.rotation.set(m.userData.rx, m.userData.ry, 0); c.frustumCulled = false;
+      c.userData = { r: m.userData.r, tyre: m.userData.tyre, low: m.userData.low, high: m.userData.high }; g.add(c);
+    }
+    return g;
+  }
   function rigReset() {
     RIG.kind = ''; RIG.move = null; RIG.deb.length = 0; RIG.restT = 0;
     for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(m.userData.rx, m.userData.ry, 0); }
@@ -1833,5 +1848,5 @@ void main(){
     respawn(stage = 1, beh, variant) { return spawn(stage, { beh, variant }); },
     bones, A, LV,
   };
-  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, debug };
+  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, debug };
 })();

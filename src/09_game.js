@@ -9,7 +9,7 @@ renderer.domElement.id = 'game';
 Post.init(renderer);
 
 const scene = new THREE.Scene();
-scene.add(City.group, Target.group, Bullet.root, FX.points);
+scene.add(City.group, Target.group, Bullet.root, FX.points, Mortar.group);
 const camera = new THREE.PerspectiveCamera(40, 1, 1, 7000);
 camera.rotation.order = 'YXZ';
 
@@ -144,14 +144,17 @@ function newStage() {
   const th = (grnd() < 0.5 ? 0 : Math.PI) + grnd(-0.7, 0.7);
   G.wind.set(Math.cos(th), 0, Math.sin(th)).multiplyScalar(G.diff.wind * grnd(0.75, 1.1));
   FX.wind.copy(G.wind).multiplyScalar(0.6);
-  Target.spawn(G.stage);
+  // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
+  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0;
+  Mortar.clear();
+  if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
   planHidden();
   // start looking roughly down the avenue, toward the target's side
-  const tc = Target.chest;
+  const tc = G.mission ? Mortar.center() : Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
   Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];
-  if (G.stage <= 1) {
-    // the first target: the scope starts just off him, so he is in view from the first frame
+  if (G.stage <= 1 || G.mission) {
+    // the first target (and a fire mission's trucks): the scope starts just off him, in view from the first frame
     const dx = tc.x - PLAYER.eye.x, dy = tc.y - PLAYER.eye.y, dz = tc.z - PLAYER.eye.z;
     Aim.yaw = Math.atan2(-dx, -dz) + grnd(-1, 1) * 0.9 * DEG; Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz)) + grnd(-1, 1) * 0.6 * DEG;
   }
@@ -241,8 +244,8 @@ function scoreHit(ev) {
 }
 // the big pack (or a car, k > 1) goes up: a fireball, smoke, sparks, a blast that shatters nearby glass and
 // shakes the camera
-function packBlast(k = 1) {
-  const c = tmpV2.copy(Target.chest); Target.S.packGone = true;
+function packBlast(k = 1, at = null) {
+  const c = tmpV2.copy(at || Target.chest); if (!at) Target.S.packGone = true;
   for (let i = 0; i < 44 * k; i++) {
     const a = Math.random() * TAU, e = Math.random() * 1.3 - 0.3, sp = (3 + Math.random() * 9) * Math.sqrt(k);
     FX.spawn(c.x, c.y, c.z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 2, Math.sin(a) * Math.cos(e) * sp, 0.5 + Math.random() * 0.7, 0.5, 2.2 + Math.random(), 1.15, 1.6, 3, 0);
@@ -276,7 +279,7 @@ function onBulletEvent(ev) {
     Sfx.miss();
     const md = Bullet.S.minDist;
     G.missP.copy(Bullet.S.closeP); G.missGap = Target.S.alive && md < 40 && md > 0.3;
-    G.lastMiss = md < 50 ? `MISSED BY ${md.toFixed(1)} M` : ev.type === 'lost' ? 'ROUND LOST' : ev.kind === 4 ? 'WIRE STRIKE' : ev.kind === 3 ? 'WATER TOWER' : ev.kind === 2 ? 'ROOF EQUIPMENT' : 'HIT STRUCTURE';
+    G.lastMiss = md < 50 ? `MISSED BY ${md.toFixed(1)} M` : ev.type === 'lost' ? 'ROUND LOST' : ev.kind === 7 ? 'TREE STRIKE' : ev.kind === 4 ? 'WIRE STRIKE' : ev.kind === 3 ? 'WATER TOWER' : ev.kind === 2 ? 'ROOF EQUIPMENT' : 'HIT STRUCTURE';
     if (Target.S.alive) { Target.S.wary = (Target.S.wary || 0) + 1; Target.evade(); }   // missed: he is on to you now
     Bullet.hideRound();
     setState('misscam');
@@ -1007,8 +1010,25 @@ function tick(rdt) {
     case 'aim': {
       if (G.demo) demoAim(rdt);
       updateAim(rdt);
+      // fire mission: lock the three trucks, then the bomb goes down the tube
+      if (G.mission) { if (Mortar.aim(fire_, Input.tap)) { Sfx.mortarLoad(); setState('mload'); } break; }
       if (G.demo && G.stateT > 1.6) { fire(); break; }
       if (fire_) { fire(); break; }
+      break;
+    }
+    case 'mload':   // fire mission: loaded; tap (or click, space) to fire
+      updateAim(rdt);
+      if (G.stateT > 0.8 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }
+      break;
+    case 'mflight': {   // fire mission: ride the bomb up, the cones down, watch the trucks go
+      gdt = rdt * Mortar.ts();
+      Mortar.update(gdt, (c, k) => packBlast(k, c));
+      Mortar.camera(rdt, camera);
+      if (Mortar.done()) {
+        G.tallyRows = [['TARGETS DESTROYED 3', 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
+        G.tallyStep = 0.45; G.score += G.tallyRows.reduce((a, r) => a + r[1], 0);
+        setState('tally'); G.tallyTick = 0;
+      }
       break;
     }
     case 'shot':
@@ -1118,7 +1138,7 @@ function tick(rdt) {
       }
       break;
     case 'tally': {
-      killCamera(rdt);
+      if (G.mission) Mortar.camera(rdt, camera); else killCamera(rdt);
       const row = Math.floor((G.stateT - 0.5) / (G.tallyStep || 0.45));
       if (row >= 0 && row <= G.tallyRows.length && row >= (G.tallyTick || 0)) { G.tallyTick = row + 1; if (row === G.tallyRows.length && Sfx.bonus) Sfx.bonus(); else Sfx.tick(); }
       if ((fire_ && G.stateT > 1.0) || G.stateT > 7) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
@@ -1170,6 +1190,7 @@ function tick(rdt) {
   // HUD projections
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   project(Target.chest, G.tgtScreen);
+  if (G.mission) { Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false; }   // fire mission: the trucks have their own brackets
   // a car or a quadcopter: its brackets frame its whole box on screen
   G.tgtScreen.bw = 0;
   if (Target.S.type !== 'man' && Target.S.alive && G.tgtScreen.vis) {
@@ -1255,7 +1276,7 @@ function demoAim(rdt) {
 function render() {
   // test hook: a free camera for looking at things up close (window.__X.look)
   if (G.dbgView) { const v = G.dbgView; camera.position.copy(v.p); camera.up.set(0, 1, 0); camera.lookAt(v.t); camera.fov = v.fov || 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
-  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials'].includes(G.state) ? 1 : 0;
+  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload'].includes(G.state) ? 1 : 0;
   G.scopeAmt = scopeOn;
   const d = Post.display.uniforms, s = Post.sensor.uniforms;
   d.uMode.value = G.mode; d.uScope.value = G.scopeAmt; d.uScopeR.value = G.scopeR; d.uFlash.value = G.flash * 0.6;
@@ -1303,7 +1324,7 @@ if (!TEST) fontsReady.then(() => requestAnimationFrame(loop));
 
 // ---- test / debug hooks --------------------------------------------------------
 window.__X = {
-  G, Aim, City, Target, Bullet, Post, Hud, FX, Sfx, scene, renderer, camera, fontsReady, Input,
+  G, Aim, City, Target, Bullet, Post, Hud, FX, Sfx, scene, renderer, camera, fontsReady, Input, Mortar,
   advance(sec, step = 1 / 60, draw = true) { const n = Math.max(1, Math.round(sec / step)); for (let i = 0; i < n; i++) tick(step); if (draw) render(); },
   key(code) { Input.pressed.add(code); },
   look(p, t, fov) { G.dbgView = p ? { p: p.clone(), t: t.clone(), fov } : null; },

@@ -20,6 +20,8 @@ const QS = new URLSearchParams(location.search);
 const TEST = QS.has('test');
 // flight steering: 'stick' (push the round) or 'point' (move an aim marker; the round flies to it)
 const STEER_MODE = QS.get('steer') || 'point';
+// fire mission: a mortar reward stage every fifth stage (src/08_mortar.js). Set false to switch it off.
+const FIRE_MISSION = true;
 // phone / tablet: forced by the mobile build (window.XACTO_MOBILE) or ?touch, otherwise detected from the
 // primary pointer. The HUD also switches to its touch layout on the first touch of any device.
 const MOBILE = !!window.XACTO_MOBILE || QS.has('touch') || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);

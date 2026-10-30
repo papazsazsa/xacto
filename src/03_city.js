@@ -68,6 +68,7 @@ const City = (() => {
     pyr: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4).translate(0, 0.5, 0),
     dish: new THREE.ConeGeometry(1, 1, 8, 1, true).rotateX(Math.PI).translate(0, 0.5, 0),
     tree: mergeNI([new THREE.ConeGeometry(1, 0.8, 5, 1).translate(0, 0.6, 0), new THREE.CylinderGeometry(0.12, 0.15, 0.25, 4, 1).translate(0, 0.125, 0)]),
+    stCan: new THREE.IcosahedronGeometry(1, 0), stTrunk: new THREE.CylinderGeometry(0.16, 0.24, 1, 5, 1).translate(0, 0.5, 0),
     hyper: new THREE.LatheGeometry([[1, 0], [0.84, 0.22], [0.66, 0.5], [0.6, 0.72], [0.64, 0.9], [0.7, 1]].map(([x, y]) => new THREE.Vector2(x, y)), 12),
     wedge: wedgeGeo(), ring: ringGeo(),
   };
@@ -83,6 +84,7 @@ const City = (() => {
     cool: thermalMat(FS_SHAPE, { uT: { value: 0.34 }, uKind: { value: 2 } }, { side: THREE.DoubleSide }),
     dish: thermalMat(FS_SHAPE, { uT: { value: 0.305 }, uKind: { value: 3 } }, { side: THREE.DoubleSide }),
     tree: thermalMat(FS_SOLID_C, { uT: { value: 0.285 }, uStripe: { value: 0 } }),
+    stCan: thermalMat(FS_SOLID_C, { uT: { value: 0.3 }, uStripe: { value: 0 } }), stTrunk: thermalMat(FS_SOLID_C, { uT: { value: 0.33 }, uStripe: { value: 0 } }),
     car: thermalMat(FS_CAR),
     ground: thermalMat(FS_GROUND, {
       uGrid: { value: new THREE.Vector4(GRID.aveSp, GRID.mainHW, GRID.aveHW, GRID.stSp) }, uGrid2: { value: new THREE.Vector2(GRID.stHW, GRID.sw) },
@@ -102,7 +104,7 @@ const City = (() => {
   let boxes = [], grid = new Map(), roofs = [], emitters = [];
   // instance lists. B/L/H: axis-aligned [x0,y0,z0,x1,y1,z1,seed,style]; RG: parapet rings (same form);
   // T-lists: [x,y,z, sx,sy,sz, rx,ry,rz, seed, style] (Euler YXZ)
-  let B = [], L = [], H = [], RG = [], TK = [], CN = [], PY = [], WD = [], HY = [], DS = [], TR = [], CB = [], LP = [];
+  let B = [], L = [], H = [], RG = [], TK = [], CN = [], PY = [], WD = [], HY = [], DS = [], TR = [], CB = [], LP = [], STC = [], STT = [];
   let meshes = [], cars = [], carMesh = null, lightPts = null, stamp = 1;
   let density = () => 0, indus = () => 0, prof = {}, river = null, parks = [], reserved = [], heroes = [], steamVents = [];
   const info = { seed: 0, bridges: 0, cranes: 0, towers: 0, sector: '', cables: 0, spires: 0 };
@@ -706,6 +708,28 @@ const City = (() => {
     }
   }
 
+  // tree-lined streets: about one cross street in six gets a row of trees down both sidewalks. The canopies
+  // hang out over the kerb lanes (solid to the round, collision kind 7), something to thread it between; the
+  // middle of the road and the intersections stay open. Only within the shooter's field of play.
+  function streetTrees() {
+    const phase = Math.floor(crnd(0, 6)), eye = PLAYER.eye;
+    for (let k = 2; k < GRID.nSt - 1; k++) {
+      if ((k + phase) % 6 !== 0 || (river && (k === river.k || k === river.k + 1))) continue;
+      const zc = -k * GRID.stSp, xMax = Math.tan(32 * DEG) * (eye.z - zc) + 60;
+      for (const side of [-1, 1]) {
+        const z = zc + side * (GRID.stHW + GRID.sw * 0.45);
+        for (let x = -xMax + crnd(0, 10); x <= xMax; x += crnd(10, 13)) {
+          const j = Math.round(x / GRID.aveSp), hw = (j === 0 ? GRID.mainHW : GRID.aveHW) + GRID.sw + 3;
+          if (Math.abs(x - j * GRID.aveSp) < hw) continue;
+          const r = crnd(2.4, 3.2), tH = crnd(3.6, 4.6), cy = tH + r * 0.7;
+          addT(STT, x, 0, z, 1, tH + 0.3, 1, 0, crnd(0, TAU), 0);
+          addT(STC, x, cy, z, r, r * crnd(0.8, 1.0), r, crnd(-0.2, 0.2), crnd(0, TAU), 0);
+          addCol(x - 0.25, 0, z - 0.25, x + 0.25, tH, z + 0.25, 7);
+          addCol(x - r * 0.75, cy - r * 0.7, z - r * 0.75, x + r * 0.75, cy + r * 0.75, z + r * 0.75, 7);
+        }
+      }
+    }
+  }
   function elevatedRail() {
     if (!prof.rail) return null;
     let k = Math.floor(crnd(3, 12)), zc = -k * GRID.stSp;
@@ -884,7 +908,7 @@ const City = (() => {
     for (const m of meshes) { group.remove(m); m.geometry.dispose(); }
     meshes = []; boxes = []; grid = new Map(); roofs = []; emitters = []; LP = []; cars = []; carMesh = null; train = null; coverList = []; coverMesh = null;
     for (const g of glassList) { group.remove(g.m); g.m.geometry.dispose(); } for (const m of propList) { group.remove(m); m.geometry.dispose(); } glassList = []; propList = [];
-    B = []; L = []; H = []; RG = []; TK = []; CN = []; PY = []; WD = []; HY = []; DS = []; TR = []; CB = [];
+    B = []; L = []; H = []; RG = []; TK = []; CN = []; PY = []; WD = []; HY = []; DS = []; TR = []; CB = []; STC = []; STT = [];
     prof = rollProfile(); info.sector = prof.name;
     // randomised skyline: one dominant downtown + two secondary clusters
     const c1 = [crnd(-220, 220), -crnd(1250, 1850), crnd(330, 460)];
@@ -958,6 +982,7 @@ const City = (() => {
     steamGrates();
     riverworks();
     rail = elevatedRail();
+    streetTrees();
     PT.push(performance.now());
     instBoxes(B, mats.bld);
     instBoxes(L, mats.lat);
@@ -970,6 +995,8 @@ const City = (() => {
     instT(HY, mats.cool, geo.hyper);
     instT(DS, mats.dish, geo.dish);
     instT(TR, mats.tree, geo.tree);
+    instT(STT, mats.stTrunk, geo.stTrunk);
+    instT(STC, mats.stCan, geo.stCan);
     instT(CB, mats.bld, geo.cbox);
     PT.push(performance.now());
     lampsAndLights();

@@ -52,6 +52,8 @@ const QS = new URLSearchParams(location.search);
 const TEST = QS.has('test');
 // flight steering: 'stick' (push the round) or 'point' (move an aim marker; the round flies to it)
 const STEER_MODE = QS.get('steer') || 'point';
+// fire mission: a mortar reward stage every fifth stage (src/08_mortar.js). Set false to switch it off.
+const FIRE_MISSION = true;
 // phone / tablet: forced by the mobile build (window.XACTO_MOBILE) or ?touch, otherwise detected from the
 // primary pointer. The HUD also switches to its touch layout on the first touch of any device.
 const MOBILE = !!window.XACTO_MOBILE || QS.has('touch') || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);
@@ -580,6 +582,43 @@ const Sfx = (() => {
     const g2 = ctx.createGain(); g2.gain.value = 0.25;
     o1.connect(g); o2.connect(g2).connect(g); g.connect(filt('lowpass', 1500)).connect(p).connect(A.amb); g.connect(A.verbIn);
   }
+  // ---- fire mission (mortar) ----------------------------------------------------------------
+  // loading: the fins clink on the muzzle, the bomb slides down, seats with a hollow thunk, the tube rings
+  function mortarLoad() {
+    if (!ctx) return; const t = now();
+    for (const [f, v, d] of [[2380, 0.07, 0.25], [3710, 0.045, 0.18], [5230, 0.03, 0.12]]) { const o = osc('sine', f, t, t + d + 0.05), g = gainAD(t, v, 0.001, d); o.connect(g).connect(A.sfx); }
+    const nb = filt('bandpass', 2200, 2); nb.frequency.setValueAtTime(2200, t + 0.03); nb.frequency.exponentialRampToValueAtTime(500, t + 0.3);
+    let g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t + 0.03); g.gain.exponentialRampToValueAtTime(0.12, t + 0.1); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    noise(t + 0.03, 0.32).connect(nb).connect(g).connect(A.sfx);
+    const tt = t + 0.32;
+    const o = osc('sine', 150, tt, tt + 0.5); o.frequency.exponentialRampToValueAtTime(70, tt + 0.25);
+    g = gainAD(tt, 0.85, 0.002, 0.3); o.connect(g).connect(A.sfx);
+    g = gainAD(tt, 0.5, 0.001, 0.08); noise(tt, 0.12).connect(filt('lowpass', 900)).connect(g).connect(A.sfx);
+    for (const [f, v, d] of [[330, 0.12, 0.9], [612, 0.06, 0.6], [1180, 0.035, 0.4]]) { const r = osc('sine', f, tt, tt + d + 0.1), rg = gainAD(tt, v, 0.004, d); r.connect(rg).connect(A.sfx); rg.connect(A.verbIn); }
+  }
+  // the launch: a deep, hollow thoomp out of the tube
+  function mortarFire() {
+    if (!ctx) return; const t = now();
+    const o = osc('sine', 85, t, t + 1.0); o.frequency.exponentialRampToValueAtTime(32, t + 0.7);
+    let g = gainAD(t, 1.0, 0.003, 0.7); o.connect(g).connect(A.sfx);
+    g = gainAD(t, 0.9, 0.002, 0.45); noise(t, 0.5).connect(filt('bandpass', 260, 3)).connect(g).connect(A.sfx); g.connect(A.verbIn);
+    g = gainAD(t, 0.6, 0.001, 0.12); noise(t, 0.15).connect(filt('lowpass', 1500)).connect(g).connect(A.sfx);
+    const r = osc('sine', 300, t, t + 0.9), rg = gainAD(t, 0.08, 0.004, 0.7); r.connect(rg).connect(A.sfx);
+  }
+  // the nose popping open at the top of the arc
+  function mortarSplit() {
+    if (!ctx) return; const t = now();
+    let g = gainAD(t, 0.5, 0.0005, 0.06); noise(t, 0.1).connect(filt('highpass', 1200)).connect(g).connect(A.sfx); g.connect(A.verbIn);
+    g = gainAD(t, 0.4, 0.002, 0.15); const o = osc('sine', 220, t, t + 0.25); o.frequency.exponentialRampToValueAtTime(90, t + 0.15); o.connect(g).connect(A.sfx);
+  }
+  // falling whistle of the cones coming down
+  function whistle(dur = 3) {
+    if (!ctx) return; const t = now();
+    const o = osc('sine', 2600, t, t + dur + 0.05); o.frequency.exponentialRampToValueAtTime(900, t + dur);
+    const lfo = osc('sine', 5.5, t, t + dur), lg = ctx.createGain(); lg.gain.value = 18; lfo.connect(lg).connect(o.frequency);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + dur * 0.85); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);
+    o.connect(g).connect(A.sfx); g.connect(A.verbIn);
+  }
   function windLevel(v) { if (!amb) return; const t = now(); amb.wg.gain.setTargetAtTime(0.022 + 0.004 * v, t, 0.5); amb.lpL.frequency.setTargetAtTime(300 + 30 * v, t, 0.5); amb.lpR.frequency.setTargetAtTime(280 + 30 * v, t, 0.5); }
   function toggleMute() { muted = !muted; Store.set('muted', muted); if (A) A.master.gain.setTargetAtTime(muted ? 0 : MASTER, now(), 0.02); return muted; }
 
@@ -603,6 +642,7 @@ const Sfx = (() => {
   return {
     init, shot, crack, blip, arp, coin, tick, lock, deny, hit, miss, impactThud, ricochet, glass, boom, bodyThud, hatLand, heartbeat, staticBurst,
     stageStart, gameOver, bonus, whoosh, siren, flightStart, flightUpdate, flightStop, windLevel, toggleMute, renderOffline, slowDive, slowWorld, worldResume,
+    mortarLoad, mortarFire, mortarSplit, whistle,
     get muted() { return muted; }, get ctx() { return ctx; },
   };
 })();
@@ -1254,6 +1294,7 @@ const City = (() => {
     pyr: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1).rotateY(Math.PI / 4).translate(0, 0.5, 0),
     dish: new THREE.ConeGeometry(1, 1, 8, 1, true).rotateX(Math.PI).translate(0, 0.5, 0),
     tree: mergeNI([new THREE.ConeGeometry(1, 0.8, 5, 1).translate(0, 0.6, 0), new THREE.CylinderGeometry(0.12, 0.15, 0.25, 4, 1).translate(0, 0.125, 0)]),
+    stCan: new THREE.IcosahedronGeometry(1, 0), stTrunk: new THREE.CylinderGeometry(0.16, 0.24, 1, 5, 1).translate(0, 0.5, 0),
     hyper: new THREE.LatheGeometry([[1, 0], [0.84, 0.22], [0.66, 0.5], [0.6, 0.72], [0.64, 0.9], [0.7, 1]].map(([x, y]) => new THREE.Vector2(x, y)), 12),
     wedge: wedgeGeo(), ring: ringGeo(),
   };
@@ -1269,6 +1310,7 @@ const City = (() => {
     cool: thermalMat(FS_SHAPE, { uT: { value: 0.34 }, uKind: { value: 2 } }, { side: THREE.DoubleSide }),
     dish: thermalMat(FS_SHAPE, { uT: { value: 0.305 }, uKind: { value: 3 } }, { side: THREE.DoubleSide }),
     tree: thermalMat(FS_SOLID_C, { uT: { value: 0.285 }, uStripe: { value: 0 } }),
+    stCan: thermalMat(FS_SOLID_C, { uT: { value: 0.3 }, uStripe: { value: 0 } }), stTrunk: thermalMat(FS_SOLID_C, { uT: { value: 0.33 }, uStripe: { value: 0 } }),
     car: thermalMat(FS_CAR),
     ground: thermalMat(FS_GROUND, {
       uGrid: { value: new THREE.Vector4(GRID.aveSp, GRID.mainHW, GRID.aveHW, GRID.stSp) }, uGrid2: { value: new THREE.Vector2(GRID.stHW, GRID.sw) },
@@ -1288,7 +1330,7 @@ const City = (() => {
   let boxes = [], grid = new Map(), roofs = [], emitters = [];
   // instance lists. B/L/H: axis-aligned [x0,y0,z0,x1,y1,z1,seed,style]; RG: parapet rings (same form);
   // T-lists: [x,y,z, sx,sy,sz, rx,ry,rz, seed, style] (Euler YXZ)
-  let B = [], L = [], H = [], RG = [], TK = [], CN = [], PY = [], WD = [], HY = [], DS = [], TR = [], CB = [], LP = [];
+  let B = [], L = [], H = [], RG = [], TK = [], CN = [], PY = [], WD = [], HY = [], DS = [], TR = [], CB = [], LP = [], STC = [], STT = [];
   let meshes = [], cars = [], carMesh = null, lightPts = null, stamp = 1;
   let density = () => 0, indus = () => 0, prof = {}, river = null, parks = [], reserved = [], heroes = [], steamVents = [];
   const info = { seed: 0, bridges: 0, cranes: 0, towers: 0, sector: '', cables: 0, spires: 0 };
@@ -1892,6 +1934,28 @@ const City = (() => {
     }
   }
 
+  // tree-lined streets: about one cross street in six gets a row of trees down both sidewalks. The canopies
+  // hang out over the kerb lanes (solid to the round, collision kind 7), something to thread it between; the
+  // middle of the road and the intersections stay open. Only within the shooter's field of play.
+  function streetTrees() {
+    const phase = Math.floor(crnd(0, 6)), eye = PLAYER.eye;
+    for (let k = 2; k < GRID.nSt - 1; k++) {
+      if ((k + phase) % 6 !== 0 || (river && (k === river.k || k === river.k + 1))) continue;
+      const zc = -k * GRID.stSp, xMax = Math.tan(32 * DEG) * (eye.z - zc) + 60;
+      for (const side of [-1, 1]) {
+        const z = zc + side * (GRID.stHW + GRID.sw * 0.45);
+        for (let x = -xMax + crnd(0, 10); x <= xMax; x += crnd(10, 13)) {
+          const j = Math.round(x / GRID.aveSp), hw = (j === 0 ? GRID.mainHW : GRID.aveHW) + GRID.sw + 3;
+          if (Math.abs(x - j * GRID.aveSp) < hw) continue;
+          const r = crnd(2.4, 3.2), tH = crnd(3.6, 4.6), cy = tH + r * 0.7;
+          addT(STT, x, 0, z, 1, tH + 0.3, 1, 0, crnd(0, TAU), 0);
+          addT(STC, x, cy, z, r, r * crnd(0.8, 1.0), r, crnd(-0.2, 0.2), crnd(0, TAU), 0);
+          addCol(x - 0.25, 0, z - 0.25, x + 0.25, tH, z + 0.25, 7);
+          addCol(x - r * 0.75, cy - r * 0.7, z - r * 0.75, x + r * 0.75, cy + r * 0.75, z + r * 0.75, 7);
+        }
+      }
+    }
+  }
   function elevatedRail() {
     if (!prof.rail) return null;
     let k = Math.floor(crnd(3, 12)), zc = -k * GRID.stSp;
@@ -2070,7 +2134,7 @@ const City = (() => {
     for (const m of meshes) { group.remove(m); m.geometry.dispose(); }
     meshes = []; boxes = []; grid = new Map(); roofs = []; emitters = []; LP = []; cars = []; carMesh = null; train = null; coverList = []; coverMesh = null;
     for (const g of glassList) { group.remove(g.m); g.m.geometry.dispose(); } for (const m of propList) { group.remove(m); m.geometry.dispose(); } glassList = []; propList = [];
-    B = []; L = []; H = []; RG = []; TK = []; CN = []; PY = []; WD = []; HY = []; DS = []; TR = []; CB = [];
+    B = []; L = []; H = []; RG = []; TK = []; CN = []; PY = []; WD = []; HY = []; DS = []; TR = []; CB = []; STC = []; STT = [];
     prof = rollProfile(); info.sector = prof.name;
     // randomised skyline: one dominant downtown + two secondary clusters
     const c1 = [crnd(-220, 220), -crnd(1250, 1850), crnd(330, 460)];
@@ -2144,6 +2208,7 @@ const City = (() => {
     steamGrates();
     riverworks();
     rail = elevatedRail();
+    streetTrees();
     PT.push(performance.now());
     instBoxes(B, mats.bld);
     instBoxes(L, mats.lat);
@@ -2156,6 +2221,8 @@ const City = (() => {
     instT(HY, mats.cool, geo.hyper);
     instT(DS, mats.dish, geo.dish);
     instT(TR, mats.tree, geo.tree);
+    instT(STT, mats.stTrunk, geo.stTrunk);
+    instT(STC, mats.stCan, geo.stCan);
     instT(CB, mats.bld, geo.cbox);
     PT.push(performance.now());
     lampsAndLights();
@@ -3479,7 +3546,7 @@ void main(){
     S.hide = null; S.app = null; S.alertT = 0; S.spot = null; S.wary = 0; S.base = null; S.evT = 0;
     S.char = opts.char || pickChar(); S.packGone = false;
     // the first target: always in the open, close to where the scope starts out pointing
-    if (stage <= 1 && !opts.kind) return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts));
+    if (stage <= 1 && !opts.kind) { schedule(); return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts)); }
     if (opts.hidden !== false && spawnHidden(stage, opts)) return true;
     if (opts.cover !== false && spawnCover(stage, opts)) return true;
     return spawnOpen(stage, opts);
@@ -3539,11 +3606,17 @@ void main(){
     return null;
   }
   function rayLen(x, y, z, dx, dz, len) { _hdir.set(dx, 0, dz).normalize(); return City.raycast(_hs.set(x, y, z), _hdir, len) ? City.hit.t : len; }
-  // Spot types come out of a shuffled bag (no type twice in a row); cars and quadcopters join from stage 3.
-  let bag = [], lastKind = '';
+  // What the target is, stage by stage. Mostly a man in a tight spot (roof, street, under an awning) from a
+  // shuffled bag, no spot type twice in a row. Round 2 is a technical out on the main avenue. After that a
+  // technical and a quadcopter each turn up about once every 6 to 8 stages.
+  let bag = [], lastKind = '', nextCar = 9, nextQuad = 5, lastMachine = 2;
+  function schedule() { nextCar = 8 + Math.floor(gameRand() * 3); nextQuad = 4 + Math.floor(gameRand() * 3); lastMachine = 2; }
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
-    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : stage === 2 ? ['roof', 'street', 'awning'] : ['roof', 'street', 'awning', 'car', 'quad', 'highway'];
+    const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
+    if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
+    if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
+    const kinds = stage <= 1 ? ['roof', 'street', 'roof'] : ['roof', 'street', 'awning'];
     if (!bag.length || bag.some((k) => !kinds.includes(k))) { bag = kinds.slice(); for (let i = bag.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [bag[i], bag[j]] = [bag[j], bag[i]]; } }
     let i = bag.findIndex((k) => k !== lastKind); if (i < 0) i = 0;
     const k = bag.splice(i, 1)[0]; lastKind = k; return k;
@@ -4319,6 +4392,15 @@ void main(){
   }
   const carG = new THREE.Group(), quadG = new THREE.Group(); carG.visible = quadG.visible = false; group.add(carG, quadG);
   const carMeshes = rigMeshes(CAR_PARTS, carMat), quadMeshes = rigMeshes(QUAD_PARTS, quadMat);
+  // a separate technical (shared geometry and materials) for the fire mission
+  function truckMesh() {
+    const g = new THREE.Group();
+    for (const m of carMeshes) {
+      const c = new THREE.Mesh(m.geometry, m.material); c.position.copy(m.userData.home); c.rotation.set(m.userData.rx, m.userData.ry, 0); c.frustumCulled = false;
+      c.userData = { r: m.userData.r, tyre: m.userData.tyre, low: m.userData.low, high: m.userData.high }; g.add(c);
+    }
+    return g;
+  }
   function rigReset() {
     RIG.kind = ''; RIG.move = null; RIG.deb.length = 0; RIG.restT = 0;
     for (const [ms, g] of [[carMeshes, carG], [quadMeshes, quadG]]) for (const m of ms) { g.add(m); m.position.copy(m.userData.home); m.quaternion.identity(); m.rotation.set(m.userData.rx, m.userData.ry, 0); }
@@ -4586,7 +4668,7 @@ void main(){
     respawn(stage = 1, beh, variant) { return spawn(stage, { beh, variant }); },
     bones, A, LV,
   };
-  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, debug };
+  return { group, spawn, alert, evade, calm, coverBand, update, segmentHit, distToSegment, launch, spook, hide, centroid, chest, head: headPos, S, CF, rangeFor, J, joints: () => (S.type !== 'man' ? rigJoints() : S.ragdoll ? P : jp), corners: rigCorners, refreshSpot, truckMesh, debug };
 })();
 
 // ==== 06_bullet.js ====
@@ -5686,7 +5768,7 @@ const Hud = (() => {
   }
   // touch pause button, top right, on the playing screens
   const PB = 22;
-  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight');
+  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight' || G.state === 'mload' || G.state === 'mflight');
   function pauseButton(G) {
     const r = PB * u, x = W - 36 * u - r, y = 32 * u;
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
@@ -5842,6 +5924,7 @@ const Hud = (() => {
         txt(label, sx + 4 * u, sy + lh / 2, 8, 'left', FA, BR);
       }
     }
+    if (!hideMarkers && G.mission) missionMarks(G, cx, cy, Rr);
     if (!hideMarkers && (G.tgtScreen.off || (G.tgtScreen.vis && Math.hypot(G.tgtScreen.x * W - cx, (1 - G.tgtScreen.y) * H - cy) > Rr))) {
       const a = G.tgtScreen.off ? G.tgtScreen.ang : Math.atan2(G.tgtScreen.y * H - H / 2, G.tgtScreen.x * W - W / 2);
       const px = cx + Math.cos(a) * (Rr - 30 * u), py = cy - Math.sin(a) * (Rr - 30 * u);
@@ -5857,7 +5940,26 @@ const Hud = (() => {
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = DIM; ctx.beginPath(); ctx.arc(x, y, r * 0.78, 0, TAU); ctx.stroke();
-    txt('FIRE', x, y, 8, 'center', FA, BR);
+    txt(G.mission && G.state === 'aim' ? 'LOCK' : 'FIRE', x, y, 8, 'center', FA, BR);
+  }
+  // fire mission: red brackets on each truck (numbered once locked) and the prompt under the scope
+  function missionMarks(G, cx, cy, Rr) {
+    const SC = Mortar.SC, L = Mortar.M.locks;
+    SC.forEach((s, i) => {
+      if (!s.vis || !Mortar.M.trucks[i] || !Mortar.M.trucks[i].alive) return;
+      const x0 = s.x0 * W - 4 * u, x1 = s.x1 * W + 4 * u, y0 = s.y0 * H - 4 * u, y1 = s.y1 * H + 4 * u, n = L.indexOf(i);
+      if (G.state !== 'mflight' && Math.hypot((x0 + x1) / 2 - cx, (y0 + y1) / 2 - cy) > Rr * 0.95) return;
+      if (n < 0) ctx.setLineDash([3 * u, 3 * u]);
+      tgtCorners(x0, y0, x1, y1, Math.max(5 * u, (x1 - x0) * 0.28), n >= 0 ? 2.8 : 1.6); ctx.setLineDash([]);
+      if (n >= 0) plated(String(n + 1), x1 + 12 * u, y0 - 6 * u, 16, 'left', FA, BR, 0.8);
+    });
+    if (G.state === 'aim') plated(`LOCKED ${L.length} OF 3   ${touch ? 'TAP A TARGET' : 'CROSSHAIRS ON A TARGET, CLICK'}`, W / 2, H - 70 * u, 8, 'center', FA, BR, 0.8);
+    if (G.state === 'mload' && G.stateT > 0.8 && blinkLong()) plated(touch ? 'TAP TO FIRE' : 'CLICK TO FIRE', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+  }
+  // fire mission in flight: the brackets on the trucks and a title
+  function missionHud(G) {
+    missionMarks(G, W / 2, H / 2, 1e9);
+    plated('FIRE MISSION', W / 2, 84 * u, 16, 'center');
   }
 
   // ---- bullet camera: seeker head display ------------------------------------
@@ -6181,6 +6283,19 @@ const Hud = (() => {
     scopeHud(G, fade > 0);
     if (fade <= 0) return;
     const r = G.stateT * 1.8, R = scopeRadius(G), y = H / 2 + R * (G.stage <= 2 ? 0.5 : 0.56);
+    if (G.mission) {   // fire mission card
+      const pw = Math.min(W - 28 * u, 600 * u), ph = 206 * u;
+      ctx.globalAlpha = fade;
+      if (r > 0.05) {
+        panel(W / 2 - pw / 2, y - ph / 2, pw, ph, 'FIRE MISSION', { scrim: 0.95, col: BR, tab: BR });
+        typeT('FIRE MISSION', W / 2, y - 58 * u, 32, r);
+        typeTokens(`THREE TARGETS ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
+        typeTokens(touch ? 'TAP EACH TARGET TO LOCK IT' : 'CROSSHAIRS ON EACH TARGET AND CLICK TO LOCK', W / 2, y + 22 * u, 28, (r - 0.8) * 2, 'center', FB, BR);
+        typeTokens(touch ? 'THEN TAP TO FIRE THE MORTAR' : 'THEN CLICK TO FIRE THE MORTAR', W / 2, y + 50 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
     const teach = G.stage <= 2, pw = Math.min(W - 28 * u, 600 * u), ph = (teach ? 246 : 176) * u;
     ctx.globalAlpha = fade;
     if (r > 0.05) {
@@ -6350,7 +6465,7 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
@@ -6358,7 +6473,7 @@ const Hud = (() => {
   }
 
   function draw(G) {
-    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam';
+    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam' || G.state === 'mflight';
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
     buttons.length = 0; G_ref = G;
@@ -6366,7 +6481,8 @@ const Hud = (() => {
     switch (G.state) {
       case 'attract': attract(G); break;
       case 'brief': brief(G); break;
-      case 'aim': case 'shot': scopeHud(G); break;
+      case 'aim': case 'shot': case 'mload': scopeHud(G); break;
+      case 'mflight': missionHud(G); break;   // fire mission
       case 'flight': flightHud(G); break;
       case 'killcam': case 'misscam': result(G); demoBanner(G, banSide > 0 ? 88 * u : H - 72 * u); break;
       case 'tally': tally(G); break;
@@ -6386,6 +6502,285 @@ const Hud = (() => {
   return { cv, tex, resize, draw, setTouch, buttons, get touch() { return touch; }, get u() { return u; } };
 })();
 
+// ==== 08_mortar.js ====
+// ---------------------------------------------------------------------------
+// Fire mission: a reward stage every fifth stage (FIRE_MISSION in 00_core.js switches it off). Three technicals
+// at a checkpoint on the main avenue. Lock each one (tap it, or put the crosshairs on it and click); the mortar
+// bomb drops down the tube with a thunk; fire, and the camera rides the bomb up its arc. At the top the nose
+// splits into three cones that dive straight down onto the three trucks.
+// Everything for the fire mission lives here; the game, HUD and sound hooks are marked "fire mission".
+// ---------------------------------------------------------------------------
+const Mortar = (() => {
+  const group = new THREE.Group(); group.visible = false;
+  const GM = 30, APEX = 200;                       // the arc: a stylised high lob, about 3.7 s up
+  const M = { on: false, trucks: [], locks: [], phase: '', t: 0, center: new THREE.Vector3(), start: new THREE.Vector3(), v0: new THREE.Vector3(),
+    ta: 0, cones: [], deb: [], restT: 0, thudT: 0, endT: 0, done: false, carrier: null };
+  const SC = [0, 1, 2].map(() => ({ vis: false, x0: 0, y0: 0, x1: 0, y1: 0 }));
+  const UPV = new THREE.Vector3(0, 1, 0), ZAX = new THREE.Vector3(0, 0, 1), XAX = new THREE.Vector3(1, 0, 0);
+  const T1 = new THREE.Vector3(), T2 = new THREE.Vector3(), T3 = new THREE.Vector3(), T4 = new THREE.Vector3(), Q1 = new THREE.Quaternion(), Q2 = new THREE.Quaternion(), ndcV = new THREE.Vector3();
+
+  // ---- the bomb (forward is +z): tail boom and fins, two warm propellant rings, the fat body, three cones
+  const mat = (t) => thermalMat(FS_SOLID, { uT: { value: t }, uStripe: { value: 0 } }, { side: THREE.DoubleSide });
+  const mBody = mat(0.74), mRing = mat(0.88), mFin = mat(0.6), mCone = mat(0.82);
+  const cyl = (rFront, rRear, h, n = 14) => new THREE.CylinderGeometry(rFront, rRear, h, n).rotateX(Math.PI / 2);   // along z
+  const coneGeo = new THREE.ConeGeometry(0.045, 0.3, 10).rotateX(Math.PI / 2);                                     // tip at +z
+  const bomb = new THREE.Group(), bombCones = [];
+  const part = (geo, m, x, y, z, rz = 0) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.set(0, 0, rz); o.frustumCulled = false; bomb.add(o); return o; };
+  part(cyl(0.035, 0.035, 0.34), mFin, 0, 0, -0.45);                                                   // tail boom
+  for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; part(new THREE.BoxGeometry(0.012, 0.12, 0.17), mFin, -Math.sin(a) * 0.095, Math.cos(a) * 0.095, -0.54, a); }
+  for (const z of [-0.33, -0.26]) part(new THREE.TorusGeometry(0.058, 0.024, 8, 16), mRing, 0, 0, z);   // propellant rings
+  part(cyl(0.08, 0.036, 0.22), mBody, 0, 0, -0.12);                                                    // rear taper
+  part(cyl(0.084, 0.082, 0.24), mBody, 0, 0, 0.11);                                                    // body
+  part(cyl(0.074, 0.084, 0.05), mBody, 0, 0, 0.255);                                                   // shoulder
+  for (let k = 0; k < 3; k++) { const a = Math.PI / 2 + k * TAU / 3; bombCones.push(part(coneGeo, mCone, Math.cos(a) * 0.042, Math.sin(a) * 0.042, 0.43)); }
+  bomb.scale.setScalar(2.4); bomb.visible = false; group.add(bomb);   // drawn large so it reads in the chase view
+
+  // ---- the three trucks at a checkpoint on the main avenue
+  function clear() {
+    for (const tr of M.trucks) group.remove(tr.g);
+    for (const d of M.deb) group.remove(d.m);
+    for (const c of M.cones) group.remove(c.m);
+    M.trucks = []; M.locks = []; M.cones = []; M.deb = []; M.phase = ''; M.done = false; M.on = false;
+    bomb.visible = false; for (const c of bombCones) c.visible = true; group.visible = false;
+  }
+  const footClear = (x, z) => {
+    let ok = true;
+    City.forBoxesNear(x, z, 5, (b) => { if (ok && !b.dead && b.x0 < x + 2.8 && b.x1 > x - 2.8 && b.z0 < z + 2.8 && b.z1 > z - 2.8 && b.y0 < 2.2 && b.y1 > 0.1) ok = false; });
+    return ok;
+  };
+  const skyClear = (x, z) => !City.raycast(T1.set(x, 2.3, z), UPV, 140);
+  function setup() {
+    clear(); M.on = true; group.visible = true;
+    const eye = PLAYER.eye;
+    let spots = null;
+    for (let a = 0; a < 60 && !spots; a++) {
+      const k = 3 + Math.floor(grnd(0, 3.99)), zc = -k * GRID.stSp + grnd(-8, 8), d = eye.z - zc;
+      if (d < 280 || d > 520) continue;
+      const cx = grnd(-3, 3), j = () => grnd(-1.5, 1.5);
+      const lay = [[cx - 7 + j(), zc + 8 + j(), grnd(-0.5, 0.5)], [cx + 6 + j(), zc + j(), Math.PI / 2 + grnd(-0.4, 0.4)], [cx - 2 + j(), zc - 10 + j(), grnd(2.6, 3.6)]];
+      if (lay.every(([x, z]) => Math.abs(x) < GRID.mainHW - 2.6 && footClear(x, z) && skyClear(x, z))) spots = lay;
+    }
+    if (!spots) { const zc = -4 * GRID.stSp; spots = [[-7, zc + 8, 0], [6, zc, Math.PI / 2], [-2, zc - 10, 3]]; }
+    M.center.set(0, 0, 0);
+    for (const [x, z, yaw] of spots) {
+      const g = Target.truckMesh(); g.position.set(x, 0, z); g.rotation.set(0, yaw, 0); g.updateMatrixWorld(true); group.add(g);
+      M.trucks.push({ g, p: new THREE.Vector3(x, 0, z), yaw, alive: true });
+      M.center.x += x / 3; M.center.z += z / 3;
+    }
+    M.center.y = 1;
+  }
+  // ---- locking: on screen (fractions, y down) each truck's box; a tap or the crosshairs picks the nearest
+  function screen(cam) {
+    cam.getWorldDirection(T3);
+    M.trucks.forEach((tr, i) => {
+      const s = SC[i]; let x0 = 9, x1 = -9, y0 = 9, y1 = -9, ok = tr.alive;
+      const f = T1.set(Math.sin(tr.yaw), 0, Math.cos(tr.yaw)), r = T2.set(Math.cos(tr.yaw), 0, -Math.sin(tr.yaw));
+      for (const lx of [-0.92, 0.92]) for (const y of [0.1, 2.05]) for (const lz of [-2.45, 2.45]) {
+        if (!ok) break;
+        ndcV.set(tr.p.x + r.x * lx + f.x * lz, y, tr.p.z + r.z * lx + f.z * lz);
+        if (T4.copy(ndcV).sub(cam.position).dot(T3) <= 0.5) { ok = false; break; }
+        ndcV.project(cam); x0 = Math.min(x0, ndcV.x); x1 = Math.max(x1, ndcV.x); y0 = Math.min(y0, ndcV.y); y1 = Math.max(y1, ndcV.y);
+      }
+      s.vis = ok && x1 > -1 && x0 < 1 && y1 > -1 && y0 < 1;
+      if (s.vis) { s.x0 = (x0 + 1) / 2; s.x1 = (x1 + 1) / 2; s.y0 = (1 - y1) / 2; s.y1 = (1 - y0) / 2; }
+    });
+    return SC;
+  }
+  function lockAt(nx, ny, radPx) {
+    let best = -1, bd = 1e9;
+    M.trucks.forEach((tr, i) => {
+      const s = SC[i]; if (!s.vis || M.locks.includes(i)) return;
+      const dx = Math.max(s.x0 - nx, 0, nx - s.x1) * innerWidth, dy = Math.max(s.y0 - ny, 0, ny - s.y1) * innerHeight, dd = Math.hypot(dx, dy);
+      if (dd < radPx && dd < bd) { bd = dd; best = i; }
+    });
+    if (best >= 0) { M.locks.push(best); Sfx.lock(); return true; }
+    Sfx.deny(); return false;
+  }
+  // in the scope: fire (click, space, the touch button) locks the truck under the crosshairs; a tap locks the
+  // truck under the finger
+  function aim(fire, tap) {
+    if (tap) lockAt(tap.x, tap.y, 46 * innerHeight / 720 + 14);
+    else if (fire) lockAt(0.5, 0.5, 70 * innerHeight / 720);
+    return M.locks.length >= 3;
+  }
+
+  // ---- the shot
+  const bombP = new THREE.Vector3(), bombV = new THREE.Vector3();
+  function fire() {
+    const eye = PLAYER.eye;
+    M.start.set(eye.x + 2.2, PLAYER.roofY + 1.0, eye.z - 1.2);
+    const dx = M.center.x - M.start.x, dz = M.center.z - M.start.z, L = Math.hypot(dx, dz) || 1;
+    const vy = Math.sqrt(2 * GM * APEX); M.ta = vy / GM;
+    const vh = 0.62 * L / M.ta;
+    M.v0.set(dx / L * vh, vy, dz / L * vh);
+    M.phase = 'up'; M.t = 0; M.endT = 0; M.done = false;
+    bomb.visible = true; for (const c of bombCones) c.visible = true;
+    bombAt(0);
+    FX.muzzle(M.start.clone(), UPV.clone()); Sfx.mortarFire(); begin();
+  }
+  function bombAt(t) {
+    bombP.copy(M.start).addScaledVector(M.v0, t); bombP.y -= 0.5 * GM * t * t;
+    bombV.copy(M.v0); bombV.y -= GM * t;
+    bomb.position.copy(bombP); bomb.quaternion.setFromUnitVectors(ZAX, T1.copy(bombV).normalize()); bomb.updateMatrixWorld(true);
+  }
+  function bez(c, e, out) { const u = 1 - e; return out.set(0, 0, 0).addScaledVector(c.P0, u * u * u).addScaledVector(c.P1, 3 * u * u * e).addScaledVector(c.P2, 3 * u * e * e).addScaledVector(c.P3, e * e * e); }
+  function bezD(c, e, out) { const u = 1 - e; return out.set(0, 0, 0).addScaledVector(c.P0, -3 * u * u).addScaledVector(c.P1, 3 * u * u - 6 * u * e).addScaledVector(c.P2, 6 * u * e - 3 * e * e).addScaledVector(c.P3, 3 * e * e); }
+  function split() {
+    M.phase = 'down'; M.splitT = M.t;
+    const dirH = T2.set(bombV.x, 0, bombV.z).normalize(), side = T3.crossVectors(dirH, UPV).normalize();
+    M.locks.forEach((ti, k) => {
+      const src = bombCones[k], m = new THREE.Mesh(coneGeo, mCone); m.scale.setScalar(4); m.frustumCulled = false; group.add(m);   // drawn large so they read on the dive
+      const P0 = src.getWorldPosition(new THREE.Vector3()), tr = M.trucks[ti];
+      const P3 = tr.p.clone(); P3.y = 1.0;
+      const P1 = P0.clone().addScaledVector(dirH, 35).addScaledVector(side, (k - 1) * 14);
+      const P2 = P3.clone(); P2.y += 95;
+      M.cones.push({ m, P0, P1, P2, P3, ti, t: 0, D: 3.0 + 0.3 * k, hit: false, p: P0.clone() });
+      src.visible = false;
+    });
+    M.carrier = { p: bombP.clone(), v: bombV.clone(), w: new THREE.Vector3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(3) };
+    FX.sparks(bombP.clone(), UPV.clone(), 30, 20); Sfx.mortarSplit(); Sfx.whistle(3.3);
+  }
+  function update(dt, blast) {
+    if (!M.on) return;
+    M.t += dt;
+    if (M.phase === 'up') {
+      bombAt(Math.min(M.t, M.ta));
+      if (Math.random() < 0.6) FX.spawn(bombP.x, bombP.y, bombP.z, 0, 0, 0, 0.7, 0.3, 1.3, 0.45, 1, 0.5, 0);
+      if (M.t >= M.ta) split();
+    } else if (M.phase === 'down' || M.phase === 'after') {
+      // the empty carrier tumbles away
+      const C = M.carrier;
+      if (C && bomb.visible) {
+        C.v.y -= GM * dt; C.p.addScaledVector(C.v, dt); bomb.position.copy(C.p);
+        Q1.setFromAxisAngle(T1.copy(C.w).normalize(), C.w.length() * dt); bomb.quaternion.premultiply(Q1);
+        if (C.p.y < 1 || M.t - M.splitT > 6) bomb.visible = false;
+      }
+      for (const c of M.cones) {
+        if (c.hit) continue;
+        c.t += dt; const u = Math.min(1, c.t / c.D), e = Math.pow(u, 1.5);
+        bez(c, e, c.p); c.m.position.copy(c.p);
+        bezD(c, Math.max(e, 0.001), T1).normalize(); c.m.quaternion.setFromUnitVectors(ZAX, T1);
+        if (Math.random() < 0.5) FX.spawn(c.p.x, c.p.y, c.p.z, 0, 0, 0, 0.5, 0.25, 1.0, 0.5, 1, 0.4, 0);
+        if (u >= 1) { c.hit = true; c.m.visible = false; explode(M.trucks[c.ti], blast); }
+      }
+      if (M.cones.every((c) => c.hit)) { if (M.phase !== 'after') { M.phase = 'after'; M.endT = 0; } M.endT += dt; }
+      if (M.phase === 'after' && M.endT > 2.6) M.done = true;
+    }
+    debris(dt);
+  }
+  // the pacing: full speed up, slow motion through the split, a little slow on the way down and at the blasts
+  function ts() {
+    if (M.phase === 'up') return M.t > M.ta - 0.45 ? 0.3 : 1;
+    if (M.phase === 'down') return M.t - M.splitT < 0.6 ? 0.3 : 0.85;
+    if (M.phase === 'after') return M.endT < 0.5 ? 0.4 : 1;
+    return 1;
+  }
+
+  // ---- a truck blows apart (the same breakup as the single technical: panels fly, a tyre bounces away)
+  function explode(tr, blast) {
+    if (!tr.alive) return; tr.alive = false;
+    const c = tr.p.clone(); c.y = 1.0;
+    if (blast) blast(c, 2);
+    tr.g.updateMatrixWorld(true);
+    const kids = tr.g.children.slice(), tyres = kids.filter((m) => m.userData.tyre), kick = tyres[Math.floor(Math.random() * tyres.length)];
+    for (const m of kids) {
+      const p = m.getWorldPosition(new THREE.Vector3()), q = m.getWorldQuaternion(new THREE.Quaternion());
+      group.add(m); m.position.copy(p); m.quaternion.copy(q); m.scale.set(1, 1, 1);
+      T1.subVectors(p, tr.p); T1.y = 0; if (T1.lengthSq() < 1e-4) T1.set(grnd(-1, 1), 0, grnd(-1, 1)); T1.normalize();
+      const v = T1.clone().multiplyScalar(grnd(3, 9)); v.y = grnd(6, 14);
+      if (m.userData.high) v.y += 6;
+      if (m.userData.low) { v.multiplyScalar(0.2); v.y = grnd(2, 3); }
+      if (m === kick) { v.copy(T1).multiplyScalar(grnd(9, 12)); v.y = grnd(7, 9); }
+      const w = new THREE.Vector3(grnd(-1, 1), grnd(-1, 1), grnd(-1, 1)).normalize().multiplyScalar(grnd(4, 12));
+      M.deb.push({ m, p, q, v, w, r: m.userData.r || 0.1, tyre: !!m.userData.tyre, e: m.userData.tyre ? 0.62 : 0.28, rest: false, still: 0, ground: false, roll: 0 });
+    }
+    group.remove(tr.g);
+  }
+  const dD = new THREE.Vector3(), dN = new THREE.Vector3();
+  function debris(dt) {
+    if (!M.deb.length) return;
+    const n = Math.max(1, Math.ceil(dt / (1 / 120))), h = dt / n;
+    for (let k = 0; k < n; k++) for (const d of M.deb) {
+      if (d.rest) continue;
+      d.ground = false; d.v.y -= PHYS.g * h;
+      const sp = d.v.length(); let moved = false;
+      if (sp > 1e-4) {
+        dD.copy(d.v).multiplyScalar(1 / sp);
+        if (City.raycast(d.p, dD, sp * h + d.r)) {
+          const Hh = City.hit; dN.set(Hh.nx, Hh.ny, Hh.nz); if (dN.dot(dD) > 0) dN.negate();
+          d.p.addScaledVector(dD, Math.max(0, Hh.t - d.r)); moved = true;
+          const vn = d.v.dot(dN);
+          if (vn < 0) {
+            d.v.addScaledVector(dN, -(1 + d.e) * vn);
+            if (-vn > 3 && M.thudT <= 0) { M.thudT = 0.08; if (Sfx.bodyThud) Sfx.bodyThud(Math.min(1, -vn / 12) * (d.tyre ? 0.4 : 0.8)); }
+            if (dN.y > 0.6) {
+              d.ground = true;
+              if (-vn > 1.2) { const kf = d.tyre ? 0.95 : 0.7; d.v.x *= kf; d.v.z *= kf; if (!d.tyre) d.w.multiplyScalar(0.6); }
+              else { d.v.y = 0; const kf = Math.exp(-(d.tyre ? 0.35 : 4) * h); d.v.x *= kf; d.v.z *= kf; if (!d.tyre) d.w.multiplyScalar(Math.exp(-6 * h)); }
+            }
+          }
+        }
+      }
+      if (!moved) d.p.addScaledVector(d.v, h);
+      const hs = Math.hypot(d.v.x, d.v.z);
+      if (d.tyre && d.ground && hs > 0.3) {
+        T1.set(d.v.z, 0, -d.v.x).multiplyScalar(1 / hs); d.roll += (hs / d.r) * h;
+        Q1.setFromUnitVectors(XAX, T1); Q2.setFromAxisAngle(T1, d.roll); Q2.multiply(Q1); d.q.slerp(Q2, 1 - Math.exp(-14 * h));
+      } else { const wl = d.w.length(); if (wl > 1e-4) { Q1.setFromAxisAngle(T1.copy(d.w).multiplyScalar(1 / wl), wl * h); d.q.premultiply(Q1); } }
+    }
+    for (const d of M.deb) {
+      if (!d.rest) { if (d.v.lengthSq() < 0.09 && d.ground) { d.still += dt; if (d.still > 0.4) d.rest = true; } else d.still = 0; }
+      d.m.position.copy(d.p); d.m.quaternion.copy(d.q);
+    }
+    M.thudT -= dt;
+  }
+
+  // ---- the camera: beside and behind the bomb going up; at the split it swings to look down the dive, rides
+  // one cone down with the targets ahead; after the blasts a slow high orbit over the wreckage
+  const camP = new THREE.Vector3(), camL = new THREE.Vector3(); let camInit = false, orbit = 0;
+  function camera(rdt, cam) {
+    const want = T1, look = T2;
+    let rigid = false;
+    if (M.phase === 'up' || (M.phase === 'down' && !M.cones.length)) {
+      // behind and a little above the bomb, looking ahead and down over the city toward the targets, so the
+      // bomb climbs through the bottom of the frame with the streets below
+      const f = T3.set(M.center.x - bombP.x, 0, M.center.z - bombP.z).normalize(), side = T4.crossVectors(f, UPV).normalize();
+      want.copy(bombP).addScaledVector(f, -7).addScaledVector(UPV, 2.2).addScaledVector(side, 1.6);
+      look.copy(bombP).addScaledVector(f, 22).addScaledVector(UPV, -9);
+      look.lerp(M.center, sstep(M.ta - 1.4, M.ta, M.t) * 0.85);
+      rigid = true;
+    } else if (M.phase === 'down') {
+      // ride one cone down: just behind it, the targets ahead
+      const c = M.cones.find((q) => !q.hit && q.ti === M.locks[1]) || M.cones.find((q) => !q.hit) || M.cones[0];
+      bezD(c, Math.max(0.001, Math.pow(Math.min(1, c.t / c.D), 1.5)), T3).normalize();
+      want.copy(c.p).addScaledVector(T3, -6).addScaledVector(UPV, 1.4);
+      look.copy(M.center);
+      rigid = !c.hit;
+    } else {
+      orbit += rdt * 0.12;
+      want.set(M.center.x + Math.sin(orbit) * 42, 26, M.center.z + 40 * Math.cos(orbit));
+      look.copy(M.center);
+    }
+    // keep the camera out of buildings
+    T3.subVectors(want, look); const L = T3.length();
+    if (L > 0.1) { T3.multiplyScalar(1 / L); if (City.raycast(look, T3, L)) want.copy(look).addScaledVector(T3, Math.max(2, City.hit.t - 1)); }
+    if (!camInit) { camP.copy(want); camL.copy(look); camInit = true; }
+    // the chase views hold their place on the bomb or cone (no lag at 100 m/s); the look point and the
+    // after-shot orbit ease in
+    const k = 1 - Math.exp(-6 * rdt);
+    if (rigid) camP.copy(want); else camP.lerp(want, k);
+    camL.lerp(look, 1 - Math.exp(-(rigid ? 12 : 6) * rdt));
+    cam.position.copy(camP); cam.up.set(0, 1, 0); cam.lookAt(camL);
+    cam.fov = M.phase === 'after' ? 50 : 58; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+  }
+  function begin() { camInit = false; orbit = Math.atan2(M.start.x - M.center.x, M.start.z - M.center.z); }
+
+  return {
+    group, M, SC, clear, setup, screen, aim, fire, update, camera, begin,
+    ts, done: () => M.done, center: () => M.center, dist: () => M.center.distanceTo(PLAYER.eye),
+  };
+})();
+
 // ==== 09_game.js ====
 // ---------------------------------------------------------------------------
 // Game: renderer, input, cameras, state machine, scoring, main loop
@@ -6398,7 +6793,7 @@ renderer.domElement.id = 'game';
 Post.init(renderer);
 
 const scene = new THREE.Scene();
-scene.add(City.group, Target.group, Bullet.root, FX.points);
+scene.add(City.group, Target.group, Bullet.root, FX.points, Mortar.group);
 const camera = new THREE.PerspectiveCamera(40, 1, 1, 7000);
 camera.rotation.order = 'YXZ';
 
@@ -6533,14 +6928,17 @@ function newStage() {
   const th = (grnd() < 0.5 ? 0 : Math.PI) + grnd(-0.7, 0.7);
   G.wind.set(Math.cos(th), 0, Math.sin(th)).multiplyScalar(G.diff.wind * grnd(0.75, 1.1));
   FX.wind.copy(G.wind).multiplyScalar(0.6);
-  Target.spawn(G.stage);
+  // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
+  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0;
+  Mortar.clear();
+  if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
   planHidden();
   // start looking roughly down the avenue, toward the target's side
-  const tc = Target.chest;
+  const tc = G.mission ? Mortar.center() : Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
   Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];
-  if (G.stage <= 1) {
-    // the first target: the scope starts just off him, so he is in view from the first frame
+  if (G.stage <= 1 || G.mission) {
+    // the first target (and a fire mission's trucks): the scope starts just off him, in view from the first frame
     const dx = tc.x - PLAYER.eye.x, dy = tc.y - PLAYER.eye.y, dz = tc.z - PLAYER.eye.z;
     Aim.yaw = Math.atan2(-dx, -dz) + grnd(-1, 1) * 0.9 * DEG; Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz)) + grnd(-1, 1) * 0.6 * DEG;
   }
@@ -6630,8 +7028,8 @@ function scoreHit(ev) {
 }
 // the big pack (or a car, k > 1) goes up: a fireball, smoke, sparks, a blast that shatters nearby glass and
 // shakes the camera
-function packBlast(k = 1) {
-  const c = tmpV2.copy(Target.chest); Target.S.packGone = true;
+function packBlast(k = 1, at = null) {
+  const c = tmpV2.copy(at || Target.chest); if (!at) Target.S.packGone = true;
   for (let i = 0; i < 44 * k; i++) {
     const a = Math.random() * TAU, e = Math.random() * 1.3 - 0.3, sp = (3 + Math.random() * 9) * Math.sqrt(k);
     FX.spawn(c.x, c.y, c.z, Math.cos(a) * Math.cos(e) * sp, Math.sin(e) * sp + 2, Math.sin(a) * Math.cos(e) * sp, 0.5 + Math.random() * 0.7, 0.5, 2.2 + Math.random(), 1.15, 1.6, 3, 0);
@@ -6665,7 +7063,7 @@ function onBulletEvent(ev) {
     Sfx.miss();
     const md = Bullet.S.minDist;
     G.missP.copy(Bullet.S.closeP); G.missGap = Target.S.alive && md < 40 && md > 0.3;
-    G.lastMiss = md < 50 ? `MISSED BY ${md.toFixed(1)} M` : ev.type === 'lost' ? 'ROUND LOST' : ev.kind === 4 ? 'WIRE STRIKE' : ev.kind === 3 ? 'WATER TOWER' : ev.kind === 2 ? 'ROOF EQUIPMENT' : 'HIT STRUCTURE';
+    G.lastMiss = md < 50 ? `MISSED BY ${md.toFixed(1)} M` : ev.type === 'lost' ? 'ROUND LOST' : ev.kind === 7 ? 'TREE STRIKE' : ev.kind === 4 ? 'WIRE STRIKE' : ev.kind === 3 ? 'WATER TOWER' : ev.kind === 2 ? 'ROOF EQUIPMENT' : 'HIT STRUCTURE';
     if (Target.S.alive) { Target.S.wary = (Target.S.wary || 0) + 1; Target.evade(); }   // missed: he is on to you now
     Bullet.hideRound();
     setState('misscam');
@@ -7396,8 +7794,25 @@ function tick(rdt) {
     case 'aim': {
       if (G.demo) demoAim(rdt);
       updateAim(rdt);
+      // fire mission: lock the three trucks, then the bomb goes down the tube
+      if (G.mission) { if (Mortar.aim(fire_, Input.tap)) { Sfx.mortarLoad(); setState('mload'); } break; }
       if (G.demo && G.stateT > 1.6) { fire(); break; }
       if (fire_) { fire(); break; }
+      break;
+    }
+    case 'mload':   // fire mission: loaded; tap (or click, space) to fire
+      updateAim(rdt);
+      if (G.stateT > 0.8 && (fire_ || Input.tap)) { Mortar.fire(); setState('mflight'); }
+      break;
+    case 'mflight': {   // fire mission: ride the bomb up, the cones down, watch the trucks go
+      gdt = rdt * Mortar.ts();
+      Mortar.update(gdt, (c, k) => packBlast(k, c));
+      Mortar.camera(rdt, camera);
+      if (Mortar.done()) {
+        G.tallyRows = [['TARGETS DESTROYED 3', 3000], ['FIRE MISSION', 1500], [`STAGE ${G.stage} BONUS`, 250 * G.stage]];
+        G.tallyStep = 0.45; G.score += G.tallyRows.reduce((a, r) => a + r[1], 0);
+        setState('tally'); G.tallyTick = 0;
+      }
       break;
     }
     case 'shot':
@@ -7507,7 +7922,7 @@ function tick(rdt) {
       }
       break;
     case 'tally': {
-      killCamera(rdt);
+      if (G.mission) Mortar.camera(rdt, camera); else killCamera(rdt);
       const row = Math.floor((G.stateT - 0.5) / (G.tallyStep || 0.45));
       if (row >= 0 && row <= G.tallyRows.length && row >= (G.tallyTick || 0)) { G.tallyTick = row + 1; if (row === G.tallyRows.length && Sfx.bonus) Sfx.bonus(); else Sfx.tick(); }
       if ((fire_ && G.stateT > 1.0) || G.stateT > 7) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
@@ -7559,6 +7974,7 @@ function tick(rdt) {
   // HUD projections
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   project(Target.chest, G.tgtScreen);
+  if (G.mission) { Mortar.screen(camera); G.tgtScreen.vis = false; G.tgtScreen.off = false; }   // fire mission: the trucks have their own brackets
   // a car or a quadcopter: its brackets frame its whole box on screen
   G.tgtScreen.bw = 0;
   if (Target.S.type !== 'man' && Target.S.alive && G.tgtScreen.vis) {
@@ -7644,7 +8060,7 @@ function demoAim(rdt) {
 function render() {
   // test hook: a free camera for looking at things up close (window.__X.look)
   if (G.dbgView) { const v = G.dbgView; camera.position.copy(v.p); camera.up.set(0, 1, 0); camera.lookAt(v.t); camera.fov = v.fov || 40; camera.updateProjectionMatrix(); camera.updateMatrixWorld(); }
-  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials'].includes(G.state) ? 1 : 0;
+  const scopeOn = ['brief', 'aim', 'shot', 'gameover', 'initials', 'mload'].includes(G.state) ? 1 : 0;
   G.scopeAmt = scopeOn;
   const d = Post.display.uniforms, s = Post.sensor.uniforms;
   d.uMode.value = G.mode; d.uScope.value = G.scopeAmt; d.uScopeR.value = G.scopeR; d.uFlash.value = G.flash * 0.6;
@@ -7692,7 +8108,7 @@ if (!TEST) fontsReady.then(() => requestAnimationFrame(loop));
 
 // ---- test / debug hooks --------------------------------------------------------
 window.__X = {
-  G, Aim, City, Target, Bullet, Post, Hud, FX, Sfx, scene, renderer, camera, fontsReady, Input,
+  G, Aim, City, Target, Bullet, Post, Hud, FX, Sfx, scene, renderer, camera, fontsReady, Input, Mortar,
   advance(sec, step = 1 / 60, draw = true) { const n = Math.max(1, Math.round(sec / step)); for (let i = 0; i < n; i++) tick(step); if (draw) render(); },
   key(code) { Input.pressed.add(code); },
   look(p, t, fov) { G.dbgView = p ? { p: p.clone(), t: t.clone(), fov } : null; },

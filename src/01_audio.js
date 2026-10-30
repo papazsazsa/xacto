@@ -484,6 +484,43 @@ const Sfx = (() => {
     const g2 = ctx.createGain(); g2.gain.value = 0.25;
     o1.connect(g); o2.connect(g2).connect(g); g.connect(filt('lowpass', 1500)).connect(p).connect(A.amb); g.connect(A.verbIn);
   }
+  // ---- fire mission (mortar) ----------------------------------------------------------------
+  // loading: the fins clink on the muzzle, the bomb slides down, seats with a hollow thunk, the tube rings
+  function mortarLoad() {
+    if (!ctx) return; const t = now();
+    for (const [f, v, d] of [[2380, 0.07, 0.25], [3710, 0.045, 0.18], [5230, 0.03, 0.12]]) { const o = osc('sine', f, t, t + d + 0.05), g = gainAD(t, v, 0.001, d); o.connect(g).connect(A.sfx); }
+    const nb = filt('bandpass', 2200, 2); nb.frequency.setValueAtTime(2200, t + 0.03); nb.frequency.exponentialRampToValueAtTime(500, t + 0.3);
+    let g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t + 0.03); g.gain.exponentialRampToValueAtTime(0.12, t + 0.1); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    noise(t + 0.03, 0.32).connect(nb).connect(g).connect(A.sfx);
+    const tt = t + 0.32;
+    const o = osc('sine', 150, tt, tt + 0.5); o.frequency.exponentialRampToValueAtTime(70, tt + 0.25);
+    g = gainAD(tt, 0.85, 0.002, 0.3); o.connect(g).connect(A.sfx);
+    g = gainAD(tt, 0.5, 0.001, 0.08); noise(tt, 0.12).connect(filt('lowpass', 900)).connect(g).connect(A.sfx);
+    for (const [f, v, d] of [[330, 0.12, 0.9], [612, 0.06, 0.6], [1180, 0.035, 0.4]]) { const r = osc('sine', f, tt, tt + d + 0.1), rg = gainAD(tt, v, 0.004, d); r.connect(rg).connect(A.sfx); rg.connect(A.verbIn); }
+  }
+  // the launch: a deep, hollow thoomp out of the tube
+  function mortarFire() {
+    if (!ctx) return; const t = now();
+    const o = osc('sine', 85, t, t + 1.0); o.frequency.exponentialRampToValueAtTime(32, t + 0.7);
+    let g = gainAD(t, 1.0, 0.003, 0.7); o.connect(g).connect(A.sfx);
+    g = gainAD(t, 0.9, 0.002, 0.45); noise(t, 0.5).connect(filt('bandpass', 260, 3)).connect(g).connect(A.sfx); g.connect(A.verbIn);
+    g = gainAD(t, 0.6, 0.001, 0.12); noise(t, 0.15).connect(filt('lowpass', 1500)).connect(g).connect(A.sfx);
+    const r = osc('sine', 300, t, t + 0.9), rg = gainAD(t, 0.08, 0.004, 0.7); r.connect(rg).connect(A.sfx);
+  }
+  // the nose popping open at the top of the arc
+  function mortarSplit() {
+    if (!ctx) return; const t = now();
+    let g = gainAD(t, 0.5, 0.0005, 0.06); noise(t, 0.1).connect(filt('highpass', 1200)).connect(g).connect(A.sfx); g.connect(A.verbIn);
+    g = gainAD(t, 0.4, 0.002, 0.15); const o = osc('sine', 220, t, t + 0.25); o.frequency.exponentialRampToValueAtTime(90, t + 0.15); o.connect(g).connect(A.sfx);
+  }
+  // falling whistle of the cones coming down
+  function whistle(dur = 3) {
+    if (!ctx) return; const t = now();
+    const o = osc('sine', 2600, t, t + dur + 0.05); o.frequency.exponentialRampToValueAtTime(900, t + dur);
+    const lfo = osc('sine', 5.5, t, t + dur), lg = ctx.createGain(); lg.gain.value = 18; lfo.connect(lg).connect(o.frequency);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + dur * 0.85); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.04);
+    o.connect(g).connect(A.sfx); g.connect(A.verbIn);
+  }
   function windLevel(v) { if (!amb) return; const t = now(); amb.wg.gain.setTargetAtTime(0.022 + 0.004 * v, t, 0.5); amb.lpL.frequency.setTargetAtTime(300 + 30 * v, t, 0.5); amb.lpR.frequency.setTargetAtTime(280 + 30 * v, t, 0.5); }
   function toggleMute() { muted = !muted; Store.set('muted', muted); if (A) A.master.gain.setTargetAtTime(muted ? 0 : MASTER, now(), 0.02); return muted; }
 
@@ -507,6 +544,7 @@ const Sfx = (() => {
   return {
     init, shot, crack, blip, arp, coin, tick, lock, deny, hit, miss, impactThud, ricochet, glass, boom, bodyThud, hatLand, heartbeat, staticBurst,
     stageStart, gameOver, bonus, whoosh, siren, flightStart, flightUpdate, flightStop, windLevel, toggleMute, renderOffline, slowDive, slowWorld, worldResume,
+    mortarLoad, mortarFire, mortarSplit, whistle,
     get muted() { return muted; }, get ctx() { return ctx; },
   };
 })();

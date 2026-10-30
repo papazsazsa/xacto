@@ -1,6 +1,8 @@
 # XACTO – DARPA Games
 
-An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners to targets hidden behind cover: men on rooftops, on sidewalks and under awnings, pickup technicals with a mounted machine gun, and hovering quadcopters. Missed once, a target is alerted: the man runs, the technical drives laps round its block, and the quadcopter rises and sinks. Each round can ricochet three times off glancing hits.
+An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners to targets hidden behind cover. The first target stands in the open; the second is a pickup technical cruising the main avenue; after that it is mostly men in tight spots (rooftops, sidewalks, under awnings), with a technical or a hovering quadcopter about once every 6 to 8 stages. A few tree-lined streets give the round something to dodge. Each round can ricochet three times off glancing hits.
+
+Every fifth stage is a fire mission (a reward round): lock three technicals, drop a mortar bomb down the tube, fire, and watch it split into three cones that come down on all three. It lives in `src/08_mortar.js`; set `FIRE_MISSION = false` in `src/00_core.js` to switch it off.
 
 © 1987 VALENTINE ARCADE (fictional).
 

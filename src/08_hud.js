@@ -177,7 +177,7 @@ const Hud = (() => {
   }
   // touch pause button, top right, on the playing screens
   const PB = 22;
-  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight');
+  const pauseOn = (G) => touch && !G.demo && !G.paused && (G.state === 'brief' || G.state === 'aim' || G.state === 'shot' || G.state === 'flight' || G.state === 'mload' || G.state === 'mflight');
   function pauseButton(G) {
     const r = PB * u, x = W - 36 * u - r, y = 32 * u;
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
@@ -333,6 +333,7 @@ const Hud = (() => {
         txt(label, sx + 4 * u, sy + lh / 2, 8, 'left', FA, BR);
       }
     }
+    if (!hideMarkers && G.mission) missionMarks(G, cx, cy, Rr);
     if (!hideMarkers && (G.tgtScreen.off || (G.tgtScreen.vis && Math.hypot(G.tgtScreen.x * W - cx, (1 - G.tgtScreen.y) * H - cy) > Rr))) {
       const a = G.tgtScreen.off ? G.tgtScreen.ang : Math.atan2(G.tgtScreen.y * H - H / 2, G.tgtScreen.x * W - W / 2);
       const px = cx + Math.cos(a) * (Rr - 30 * u), py = cy - Math.sin(a) * (Rr - 30 * u);
@@ -348,7 +349,26 @@ const Hud = (() => {
     ctx.fillStyle = scrim(0.55); ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
     ctx.strokeStyle = BR; ctx.lineWidth = 2 * u; ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.stroke();
     ctx.strokeStyle = DIM; ctx.beginPath(); ctx.arc(x, y, r * 0.78, 0, TAU); ctx.stroke();
-    txt('FIRE', x, y, 8, 'center', FA, BR);
+    txt(G.mission && G.state === 'aim' ? 'LOCK' : 'FIRE', x, y, 8, 'center', FA, BR);
+  }
+  // fire mission: red brackets on each truck (numbered once locked) and the prompt under the scope
+  function missionMarks(G, cx, cy, Rr) {
+    const SC = Mortar.SC, L = Mortar.M.locks;
+    SC.forEach((s, i) => {
+      if (!s.vis || !Mortar.M.trucks[i] || !Mortar.M.trucks[i].alive) return;
+      const x0 = s.x0 * W - 4 * u, x1 = s.x1 * W + 4 * u, y0 = s.y0 * H - 4 * u, y1 = s.y1 * H + 4 * u, n = L.indexOf(i);
+      if (G.state !== 'mflight' && Math.hypot((x0 + x1) / 2 - cx, (y0 + y1) / 2 - cy) > Rr * 0.95) return;
+      if (n < 0) ctx.setLineDash([3 * u, 3 * u]);
+      tgtCorners(x0, y0, x1, y1, Math.max(5 * u, (x1 - x0) * 0.28), n >= 0 ? 2.8 : 1.6); ctx.setLineDash([]);
+      if (n >= 0) plated(String(n + 1), x1 + 12 * u, y0 - 6 * u, 16, 'left', FA, BR, 0.8);
+    });
+    if (G.state === 'aim') plated(`LOCKED ${L.length} OF 3   ${touch ? 'TAP A TARGET' : 'CROSSHAIRS ON A TARGET, CLICK'}`, W / 2, H - 70 * u, 8, 'center', FA, BR, 0.8);
+    if (G.state === 'mload' && G.stateT > 0.8 && blinkLong()) plated(touch ? 'TAP TO FIRE' : 'CLICK TO FIRE', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+  }
+  // fire mission in flight: the brackets on the trucks and a title
+  function missionHud(G) {
+    missionMarks(G, W / 2, H / 2, 1e9);
+    plated('FIRE MISSION', W / 2, 84 * u, 16, 'center');
   }
 
   // ---- bullet camera: seeker head display ------------------------------------
@@ -672,6 +692,19 @@ const Hud = (() => {
     scopeHud(G, fade > 0);
     if (fade <= 0) return;
     const r = G.stateT * 1.8, R = scopeRadius(G), y = H / 2 + R * (G.stage <= 2 ? 0.5 : 0.56);
+    if (G.mission) {   // fire mission card
+      const pw = Math.min(W - 28 * u, 600 * u), ph = 206 * u;
+      ctx.globalAlpha = fade;
+      if (r > 0.05) {
+        panel(W / 2 - pw / 2, y - ph / 2, pw, ph, 'FIRE MISSION', { scrim: 0.95, col: BR, tab: BR });
+        typeT('FIRE MISSION', W / 2, y - 58 * u, 32, r);
+        typeTokens(`THREE TARGETS ${Math.round(Mortar.dist())} M`, W / 2, y - 14 * u, 28, (r - 0.4) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
+        typeTokens(touch ? 'TAP EACH TARGET TO LOCK IT' : 'CROSSHAIRS ON EACH TARGET AND CLICK TO LOCK', W / 2, y + 22 * u, 28, (r - 0.8) * 2, 'center', FB, BR);
+        typeTokens(touch ? 'THEN TAP TO FIRE THE MORTAR' : 'THEN CLICK TO FIRE THE MORTAR', W / 2, y + 50 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
     const teach = G.stage <= 2, pw = Math.min(W - 28 * u, 600 * u), ph = (teach ? 246 : 176) * u;
     ctx.globalAlpha = fade;
     if (r > 0.05) {
@@ -841,7 +874,7 @@ const Hud = (() => {
       G.stateT < 4 ? Math.floor(G.stateT * 30) : -1, q(G.scoreShown), G.hi, G.stage, G.rounds, q(G.lased), q(G.crossWind, 10), q(G.mag, 10), G.magI, Math.ceil(G.timeLeft),
       q(G.breath, 48), G.holding ? 1 : 0, G.gasp > 0 ? 1 : 0, ts.vis ? 1 : 0, ts.off ? 1 : 0, q(ts.x * W), q(ts.y * H), q(ts.h * H), q(ts.ang, 40),
       q(G.reticleOff.x * H), q(G.reticleOff.y * H), q(Target.S.root.y), G.initials.join(''), G.initialPos, G.score, q(iris(), 60), typeof Aim !== 'undefined' ? q(Aim.yaw, 3000) : 0,
-      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0);
+      G.demo ? 1 : 0, G.sector || '', G.tallyRows.length, Sfx.muted ? 1 : 0, touch ? 1 : 0, G.mission ? Mortar.M.locks.length : -1);
     let same = cur.length === sig.length;
     for (let i = 0; same && i < cur.length; i++) if (cur[i] !== sig[i]) same = false;
     if (!same) { sig.length = cur.length; for (let i = 0; i < cur.length; i++) sig[i] = cur[i]; }
@@ -849,7 +882,7 @@ const Hud = (() => {
   }
 
   function draw(G) {
-    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam';
+    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam' || G.state === 'mflight';
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
     buttons.length = 0; G_ref = G;
@@ -857,7 +890,8 @@ const Hud = (() => {
     switch (G.state) {
       case 'attract': attract(G); break;
       case 'brief': brief(G); break;
-      case 'aim': case 'shot': scopeHud(G); break;
+      case 'aim': case 'shot': case 'mload': scopeHud(G); break;
+      case 'mflight': missionHud(G); break;   // fire mission
       case 'flight': flightHud(G); break;
       case 'killcam': case 'misscam': result(G); demoBanner(G, banSide > 0 ? 88 * u : H - 72 * u); break;
       case 'tally': tally(G); break;
