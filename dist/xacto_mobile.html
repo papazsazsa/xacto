@@ -5801,7 +5801,7 @@ const Hud = (() => {
   // ---- scope -----------------------------------------------------------------
   // fire mission: the M3 binocular reticle used by mortar crews (fine dark lines, set low and to the right
   // like the original). A horizontal mil scale through the aim point, 5..1 | 1..5 (in hundreds of mils), with a
-  // centre mark below it and two dashes above; a column of four dashes over its left end; and off to the right
+  // centre mark below it and an aiming ring on the aim point; a column of four dashes over its left end; and off to the right
   // a separate vertical scale with end caps, tick marks and the numbers 5, 10, 15.
   function mortarReticle(cx, cy, R) {
     const U = R * 0.134, xv = cx + 3.05 * U, thin = Math.max(1, 1.5 * u);
@@ -5813,7 +5813,7 @@ const Hud = (() => {
       ctx.moveTo(cx - 5 * U, cy); ctx.lineTo(xv - 0.28 * U, cy); ctx.moveTo(xv + 0.28 * U, cy); ctx.lineTo(cx + 5 * U, cy);
       for (let i = -5; i <= 5; i++) { if (!i || i === 3) continue; const x = cx + i * U; ctx.moveTo(x, cy + ex); ctx.lineTo(x, cy - 0.3 * U - ex); }
       ctx.moveTo(cx, cy - ex); ctx.lineTo(cx, cy + 0.55 * U + ex);                                   // centre mark, below
-      dash(cx, cy - 0.34 * U, 0.55 * U + 2 * ex); dash(cx, cy - 0.86 * U, 0.55 * U + 2 * ex);          // two dashes above
+      ctx.moveTo(cx + 0.6 * U, cy); ctx.arc(cx, cy, 0.6 * U, 0, TAU);                                  // aiming ring: put it on a truck to lock
       for (const y of [0.34, 0.82, 1.34, 1.87]) dash(cx - 5 * U, cy - y * U, 0.62 * U + 2 * ex);       // left column
       // vertical scale with end caps; ticks to the right, longer at 5, 10, 15
       const top = cy - 5.2 * U, bot = cy + 1.9 * U;
