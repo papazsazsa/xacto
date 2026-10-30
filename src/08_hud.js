@@ -400,7 +400,11 @@ const Hud = (() => {
       if (n >= 0) plated(String(n + 1), x1 + 12 * u, y0 - 6 * u, 16, 'left', FA, BR, 0.8);
     });
     if (G.state === 'aim') plated(`LOCKED ${L.length} OF 3   ${touch ? 'TAP A TARGET' : 'CROSSHAIRS ON A TARGET, CLICK'}`, W / 2, H - 70 * u, 8, 'center', FA, BR, 0.8);
-    if (G.state === 'mload' && G.stateT > 0.8 && blinkLong()) plated(touch ? 'TAP TO FIRE' : 'CLICK TO FIRE', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+    // the mortar crew's calls: hang the round over the muzzle, then fire
+    if (G.state === 'mload') {
+      if (G.stateT < 1.0) plated('HANG IT!', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+      else if (blinkLong()) plated(touch ? 'TAP TO FIRE!' : 'CLICK TO FIRE!', W / 2, H - 70 * u, 24, 'center', FA, BR, 0.85);
+    }
   }
   // fire mission in flight: the brackets on the trucks and a title
   function missionHud(G) {
