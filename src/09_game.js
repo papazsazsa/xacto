@@ -145,7 +145,7 @@ function newStage() {
   G.wind.set(Math.cos(th), 0, Math.sin(th)).multiplyScalar(G.diff.wind * grnd(0.75, 1.1));
   FX.wind.copy(G.wind).multiplyScalar(0.6);
   // fire mission (every fifth stage): three technicals for the mortar instead of the usual target
-  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage !== 10;   // (stage 10 is the helicopter)
+  G.mission = FIRE_MISSION && !G.demo && G.stage % 5 === 0 && G.stage % 10 !== 0;   // (stages 10, 20, 30 are the helicopter)
   Mortar.clear();
   if (G.mission) { Target.hide(); Mortar.setup(); } else Target.spawn(G.stage);
   planHidden();
@@ -166,8 +166,8 @@ function newStage() {
 }
 // ?stage=N in the link starts a new game at stage N (handy for trying the fire mission: ?stage=5)
 const START_STAGE = Math.max(1, Math.min(99, parseInt(QS.get('stage') || '1', 10) || 1));
-function startGame() {
-  G.score = 0; G.scoreShown = 0; G.stage = START_STAGE; G.rounds = G.maxRounds = 5; Sfx.coin();
+function startGame(stage = START_STAGE) {
+  G.score = 0; G.scoreShown = 0; G.stage = stage; G.rounds = G.maxRounds = 5; Sfx.coin();
   newStage();
 }
 // Laser rangefinder with ~3.5 mrad beam divergence: the man counts as a return whenever he is inside the
@@ -215,6 +215,7 @@ function fire() {
   });
   // once he has been missed he hears every shot after it (sound takes its time to reach him) and runs or ducks
   if (Target.S.alive && Target.S.wary > 0) Target.alert(0.3 + Target.S.dist / 343);
+  else if (Target.S.alive && Target.S.type === 'heli') Target.alert(0.2);   // the helicopter is off the moment you fire
   FX.muzzle(origin.clone().addScaledVector(dir, 1.4), dir);
   Sfx.shot(); G.flash = 0.9; Aim.recoilV = 0.9;
   G.stick.set(0, 0); G.nearMisses = 0; G.nearCool = 0; G.shake = 0; G.passedT = -1; G.locked = false;
@@ -418,7 +419,7 @@ function aimUpdate(rdt, input) {
       project(G.aimP, aimS1); project(c, aimS2);
       const px = aimS1.vis && aimS2.vis ? Math.hypot((aimS1.x - aimS2.x) * innerWidth, (aimS1.y - aimS2.y) * innerHeight) : 1e9;
       // touch: the marker snaps onto him from twice as far; a moving target half as far again
-      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1);
+      const lr = 30 * innerHeight / 720 * (Hud.touch ? 2 : 1) * (G.tgtVel.length() > 1 ? 1.5 : 1) * (Target.S.type === 'heli' ? 0.5 : 1);
       if (px > lr * 2) G.aimArmed = true;
       if (G.aimArmed && px < lr) G.aimLock = true;
     }
@@ -458,6 +459,49 @@ function touchMarker(tp) {
 // vertically, so the street under an awning stays open) and cells near walls cost extra, which keeps the
 // route in the middle of streets. The result is smoothed and followed by pure pursuit on the marker.
 const RP = { ok: false, pts: [], u: 0, ms: 0, cells: 0, expanded: 0 };
+// ---- flight check: can a round with this stage's limits actually fly the planned route in? A point-mass
+// round follows the route the way the autopilot does (cruise speed far out, slowing as it closes, sideways
+// pull capped by the fins, every turn paid from the steering budget) and must reach terminal-lock range with
+// an open line to the target, touching nothing on the way. slack (0..1) is the share of the round's pull and
+// budget the route may use: early stages keep a wide margin, late stages allow routes that need nearly all.
+const FC = { p: new THREE.Vector3(), v: new THREE.Vector3(), f: new THREE.Vector3(), d: new THREE.Vector3(), a: new THREE.Vector3() };
+function routeFlyable(slack) {
+  if (!RP.ok || RP.pts.length < 2) return false;
+  const D = G.diff, c = Target.chest, pts = RP.pts, aMax = D.aMax * slack, dt = 1 / 60;
+  const settle = (q) => D.vMin + (D.vc - D.vMin) * sstep(D.slowNear, D.slowFar, q.distanceTo(c));
+  // it arrives from the rifle: start 120 m short of the route's first point, on the line from the eye
+  FC.d.subVectors(pts[0], PLAYER.eye).normalize();
+  const p = FC.p.copy(pts[0]).addScaledVector(FC.d, -Math.min(120, pts[0].distanceTo(PLAYER.eye) - 5)), v = FC.v.copy(FC.d).multiplyScalar(settle(p));
+  let u = 0, budget = D.budget * slack, gate = true;
+  for (let step = 0; step < 60 * 30; step++) {
+    const dC = p.distanceTo(c), sp = v.length();
+    if (dC < 12 && clearLine(p, c, 0.3, true)) return true;
+    let aim;
+    if (gate && p.distanceTo(pts[0]) > 30) aim = pts[0];
+    else {
+      gate = false;
+      let bi = u, bd = 1e18;
+      for (let i = u; i < Math.min(pts.length, u + 25); i++) { const dd = pts[i].distanceToSquared(p); if (dd < bd) { bd = dd; bi = i; } }
+      u = bi;
+      const L = clamp(sp * 0.5, 10, 40) * (dC < 30 ? 0.5 : 1);
+      let j = u, acc = 0; while (j < pts.length - 1 && acc < L) { acc += pts[j].distanceTo(pts[j + 1]); j++; }
+      aim = j >= pts.length - 1 ? c : pts[j];
+    }
+    FC.d.subVectors(aim, p); const dl = FC.d.length(); FC.d.multiplyScalar(1 / Math.max(dl, 1e-3));
+    const f = FC.f.copy(v).multiplyScalar(1 / sp), cosA = clamp(f.dot(FC.d), -1, 1);
+    const aLat = Math.min(aMax, 2 * sp * sp * Math.sqrt(1 - cosA * cosA) / Math.max(dl, 1));
+    FC.a.copy(FC.d).addScaledVector(f, -cosA); const al = FC.a.length();
+    if (al > 1e-6) { v.addScaledVector(FC.a, aLat / al * dt); budget -= aLat * dt; if (budget < 0) return false; }
+    // speed: settles fast to the closing-in profile; hard turns bleed it (not below 55 % of cruise)
+    let ns = damp(v.length(), Math.min(D.vc, settle(p)), 1 / 0.12, dt);
+    if (ns > D.vc * 0.55) ns = Math.max(D.vc * 0.55, ns - D.bleed * aLat * dt);
+    v.setLength(ns);
+    FC.d.copy(v).normalize();
+    if (City.raycast(p, FC.d, ns * dt + 0.3, true)) return false;
+    p.addScaledVector(v, dt);
+  }
+  return false;
+}
 function planHidden() {
   const t0 = performance.now(); RP.ok = false; RP.pts = []; RP.u = 0;
   if (!Target.S.alive) return RP;
@@ -1023,7 +1067,10 @@ function tick(rdt) {
     }
     case 'escaped':
       updateAim(rdt);
-      if (G.stateT > 3.2 || (fire_ && G.stateT > 1.2)) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
+      if (G.stateT > 3.2 || (fire_ && G.stateT > 1.2)) {
+        if (G.stage >= FINAL_STAGE) { setState('gameover'); Sfx.gameOver && Sfx.gameOver(); break; }   // the last one got away
+        G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage();
+      }
       break;
     case 'mload':   // fire mission: loaded; tap (or click, space) to fire
       updateAim(rdt);
@@ -1071,7 +1118,9 @@ function tick(rdt) {
       // the cone tighten with the stage.
       { const Bs = Bullet.S, c = Target.chest;
         if (Target.S.alive && Bs.budget > 0 && Bs.t > Bs.dash + Bs.brakeT) {
-          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1, reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.5 : 1) * (mv ? 1.25 : 1), cone = (Math.max(18, 34 - 2 * s1) + (tch ? 12 : 0) + (mv ? 8 : 0)) * DEG;
+          // (the helicopter: half the reach and half the cone, so it stays a real challenge)
+          const s1 = Math.max(1, G.stage) - 1, tch = Hud.touch, mv = G.tgtVel.length() > 1, hk = Target.S.type === 'heli' ? 0.5 : 1;
+          const reach = Math.max(14, 24 - 1.4 * s1) * (tch ? 1.5 : 1) * (mv ? 1.25 : 1) * hk, cone = (Math.max(18, 34 - 2 * s1) + (tch ? 12 : 0) + (mv ? 8 : 0)) * DEG * hk;
           const dd = Bs.p.distanceTo(c); TL1.subVectors(c, Bs.p).normalize(); TL2.copy(Bs.v).normalize();
           const sees = dd < reach + 2 && clearLine(Bs.p, c, 0.15, true);
           if (!G.tLock && dd < reach && Math.acos(clamp(TL1.dot(TL2), -1, 1)) < cone && sees) { G.tLock = true; Sfx.lock(); G.stampText = 'TERMINAL LOCK'; G.stampT = 0.8; }
@@ -1150,9 +1199,17 @@ function tick(rdt) {
       if (G.mission) Mortar.camera(rdt, camera); else killCamera(rdt);
       const row = Math.floor((G.stateT - 0.5) / (G.tallyStep || 0.45));
       if (row >= 0 && row <= G.tallyRows.length && row >= (G.tallyTick || 0)) { G.tallyTick = row + 1; if (row === G.tallyRows.length && Sfx.bonus) Sfx.bonus(); else Sfx.tick(); }
-      if ((fire_ && G.stateT > 1.0) || G.stateT > 7) { G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage(); }
+      if ((fire_ && G.stateT > 1.0) || G.stateT > 7) {
+        // the last stage won: you saved the city
+        if (G.stage >= FINAL_STAGE && !G.demo) { setState('victory'); Sfx.victory && Sfx.victory(); break; }
+        G.stage++; G.staticAmt = 1; Sfx.staticBurst(0.2); newStage();
+      }
       break;
     }
+    case 'victory':   // YOU SAVED THE CITY! over the wreck, the fanfare, then a new game from stage 1
+      killCamera(rdt);
+      if ((fire_ && G.stateT > 3) || G.stateT > 14) startGame(1);
+      break;
     case 'gameover':
       aimCamera(rdt);
       if (G.stateT > 1.5 && (fire_ || G.stateT > 8)) {
@@ -1351,7 +1408,7 @@ window.__X = {
   sim(sec, step = 1 / 60) { const n = Math.max(1, Math.round(sec / step)); for (let i = 0; i < n; i++) tick(step); },
   startAt(stage) { G.score = 0; G.rounds = G.maxRounds = 5; G.stage = stage; newStage(); setState('aim'); },
   demo() { startDemo(); }, endDemo() { endDemo(); }, difficulty,
-  clearLine(a, b, pad) { return clearLine(a, b, pad); },
+  clearLine(a, b, pad) { return clearLine(a, b, pad); }, flyable(s) { return routeFlyable(s); },
   routeTgt: routeT, RP, planHidden, routeFollow, pointSteerAt,
   setAim(p, lock = false) { if (p) G.aimP.copy(p); G.aimLock = lock; G.aimSpent = false; }, routeAimPoint(out) { return routeAim(out); },
   bot: null, routeStick(stick, gain, look) { return routeStick(stick || G.stick, gain, look); }, planOk() { return PLAN.ok; },

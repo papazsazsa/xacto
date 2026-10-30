@@ -242,6 +242,16 @@ const Sfx = (() => {
       { wave: 'triangle', vol: 0.15, notes: [[45, 4], [43, 4], [41, 4], [40, 4], [45, 8]], gate: 0.9, o: { sustain: 0.85 } },
     ]);
   }
+  // you saved the city: a bright march-time fanfare, about four seconds
+  function victory() {
+    if (!ctx) return 0; const t = now() + 0.05;
+    return seq(t, 0.085, [
+      { wave: 'p25', vol: 0.065, notes: [[67, 1], [67, 1], [67, 1], [72, 5], [0, 1], [67, 1], [72, 1], [76, 4], [74, 2], [72, 2], [74, 2], [76, 2], [79, 6], [0, 2], [77, 2], [76, 2], [74, 2], [72, 2], [76, 2], [79, 2], [84, 12]], o: { sustain: 0.65, vib: 0.008, release: 0.8 } },
+      { wave: 'p12', vol: 0.03, notes: [[0, 3], [64, 5], [0, 2], [67, 4], [71, 2], [69, 2], [71, 2], [72, 2], [76, 6], [0, 2], [74, 2], [72, 2], [71, 2], [69, 2], [72, 2], [76, 2], [79, 12]], o: { sustain: 0.55 } },
+      { wave: 'triangle', vol: 0.16, notes: [[0, 3], [48, 4], [55, 4], [48, 4], [53, 4], [55, 4], [52, 4], [53, 4], [55, 4], [48, 12]], gate: 0.85, o: { sustain: 0.9 } },
+      { noise: true, vol: 0.045, len: 0.05, notes: [[3000, 1], [3000, 1], [3000, 1], [3000, 5], [3000, 4], [3000, 4], [3000, 4], [3000, 4], [3000, 4], [3000, 4], [3000, 2], [3000, 2], [3000, 12]] },
+    ]);
+  }
   function bonus() { if (!ctx) return; const t = now(); [84, 88, 91, 96].forEach((m, i) => chip(t + i * 0.04, mtof(m), 0.06, 'p12', 0.05, { sustain: 0.8 })); }
 
   // ---- results / impacts ---------------------------------------------------------------
@@ -543,7 +553,7 @@ const Sfx = (() => {
 
   return {
     init, shot, crack, blip, arp, coin, tick, lock, deny, hit, miss, impactThud, ricochet, glass, boom, bodyThud, hatLand, heartbeat, staticBurst,
-    stageStart, gameOver, bonus, whoosh, siren, flightStart, flightUpdate, flightStop, windLevel, toggleMute, renderOffline, slowDive, slowWorld, worldResume,
+    stageStart, gameOver, victory, bonus, whoosh, siren, flightStart, flightUpdate, flightStop, windLevel, toggleMute, renderOffline, slowDive, slowWorld, worldResume,
     mortarLoad, mortarFire, mortarSplit, whistle,
     get muted() { return muted; }, get ctx() { return ctx; },
   };

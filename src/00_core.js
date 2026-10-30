@@ -22,6 +22,8 @@ const TEST = QS.has('test');
 const STEER_MODE = QS.get('steer') || 'point';
 // fire mission: a mortar reward stage every fifth stage (src/08_mortar.js). Set false to switch it off.
 const FIRE_MISSION = true;
+// the last stage: the helicopter on stage 30. Bring it down and you have saved the city.
+const FINAL_STAGE = 30;
 // phone / tablet: forced by the mobile build (window.XACTO_MOBILE) or ?touch, otherwise detected from the
 // primary pointer. The HUD also switches to its touch layout on the first touch of any device.
 const MOBILE = !!window.XACTO_MOBILE || QS.has('touch') || (typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches);

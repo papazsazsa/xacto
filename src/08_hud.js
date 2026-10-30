@@ -743,7 +743,7 @@ const Hud = (() => {
       // 0.95 scrim = about 87 % black in the display
       panel(W / 2 - pw / 2, y - ph / 2, pw, ph, 'MISSION', { scrim: 0.95, col: BR, tab: BR });
       const o = teach ? -20 * u : 0;
-      typeT(`STAGE ${pad(G.stage, 2)}`, W / 2, y - 48 * u + o, 32, r);
+      typeT(G.stage >= FINAL_STAGE ? `FINAL STAGE ${G.stage}` : `STAGE ${pad(G.stage, 2)}`, W / 2, y - 48 * u + o, 32, r);
       if (G.sector) typeTokens(String(G.sector).toUpperCase(), W / 2, y - 6 * u + o, 34, (r - 0.3) * 3, 'center', FB);
       typeTokens(`TARGET ${Math.round(Target.S.dist)} M   WIND ${Math.abs(G.crossWind).toFixed(1)} M/S`, W / 2, y + 30 * u + o, 28, (r - 0.5) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       typeTokens(`STEERING BUDGET ${G.diff.budget.toFixed(0)} M/S`, W / 2, y + 60 * u + o, 28, (r - 0.8) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
@@ -849,6 +849,20 @@ const Hud = (() => {
     if (G.stateT > 0.9 + rows.length * (G.tallyStep || 0.45) && blinkLong()) plated(touch ? 'TAP TO CONTINUE' : 'PRESS SPACE OR CLICK', pcx, py + ph + 28 * u, 16, 'center');
     demoBanner(G);
   }
+  // the last stage won
+  function victory(G) {
+    ctx.fillStyle = scrim(0.55); ctx.fillRect(0, 0, W, H);
+    const y = H * 0.32, sz = portrait ? 28 : 40, r = G.stateT * 1.6;
+    if (r > 0) {
+      const s = 'YOU SAVED THE CITY!', n = Math.ceil(s.length * clamp(r, 0, 1)), str = s.slice(0, n) + ' '.repeat(s.length - n);
+      if (portrait) { txt(str.slice(0, 9), W / 2, y - 22 * u, sz, 'center'); txt(str.slice(10), W / 2, y + 22 * u, sz, 'center'); }   // two lines on a phone
+      else txt(str, W / 2, y, sz, 'center');
+    }
+    const o = portrait ? 30 * u : 0;
+    typeT(`FINAL SCORE ${pad(G.score, 7)}`, W / 2, y + 74 * u + o, 16, r - 1.2);
+    typeT(`ALL ${FINAL_STAGE} STAGES CLEARED`, W / 2, y + 104 * u + o, 8, r - 1.6, 'center', FA, DIM);
+    if (G.stateT > 3 && blinkLong()) txt(touch ? 'TAP TO PLAY AGAIN' : 'PRESS SPACE TO PLAY AGAIN', W / 2, H * 0.64, 16, 'center');
+  }
   function gameover(G) {
     ctx.fillStyle = scrim(0.66); ctx.fillRect(0, 0, W, H);
     const y = H * 0.3;
@@ -914,7 +928,7 @@ const Hud = (() => {
   }
 
   function draw(G) {
-    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam' || G.state === 'mflight';
+    const animated = G.state === 'attract' || G.state === 'flight' || G.state === 'killcam' || G.state === 'misscam' || G.state === 'mflight' || G.state === 'victory';
     if (!animated && signature(G)) return;          // nothing visible changed: skip redraw and upload
     if (animated) sig.length = 0;
     buttons.length = 0; G_ref = G;
@@ -929,6 +943,7 @@ const Hud = (() => {
       case 'killcam': case 'misscam': result(G); demoBanner(G, banSide > 0 ? 88 * u : H - 72 * u); break;
       case 'tally': tally(G); break;
       case 'gameover': case 'initials': gameover(G); break;
+      case 'victory': victory(G); break;
     }
     // one three-slot top bar on every screen except the kill/miss cameras (nothing competes with the payoff)
     if (G.state !== 'killcam' && G.state !== 'misscam') topBar(G);

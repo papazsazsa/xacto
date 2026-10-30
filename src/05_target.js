@@ -796,7 +796,7 @@ void main(){
   function hiddenKind(stage) {
     if (stage === 2) { lastKind = 'highway'; return 'highway'; }   // the second target: a technical out on the avenue
     if (stage === 4) { lastKind = 'tower'; return 'tower'; }       // the fourth: way up on top of a tall tower
-    if (stage === 10) { lastKind = 'heli'; lastMachine = 10; return 'heli'; }   // the tenth: a helicopter on a helipad
+    if (stage % 10 === 0) { lastKind = 'heli'; lastMachine = stage; return 'heli'; }   // stages 10, 20, 30: a helicopter on a helipad
     const gap = stage - lastMachine >= 3;                            // machines at least three stages apart
     if (gap && stage >= nextQuad) { nextQuad = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'quad'; return 'quad'; }
     if (gap && stage >= nextCar) { nextCar = stage + 6 + Math.floor(gameRand() * 3); lastMachine = stage; lastKind = 'car'; return 'car'; }
@@ -1794,43 +1794,77 @@ void main(){
     return out;
   }
   // ---- the helicopter: it idles on its pad with the rotor turning slowly. Missed once, it spools up, lifts
-  // off, turns away from the shooter and flies off, speeding up and climbing, until it is out of range: then it
-  // has escaped. It looks ahead as it goes: anything in the way, it climbs harder and turns a little.
-  const HELI_V = 18, HELI_VK = 0.45, HELI_VMAX = 38, HELI_ACC = 2, HELI_CLIMB = 4.5, HELI_TOP = 245, HELI_ESC = 1900, HELI_WEAVE = 0.4, HELI_WT = 6.5;
-  function heliDeparture() {
-    const c = RIG.c, eye = PLAYER.eye, a0 = Math.atan2(c.x - eye.x, c.z - eye.z);
-    let best = a0, bl = -1;
-    for (const da of [0, 0.35, -0.35, 0.7, -0.7]) {   // the clearest heading roughly away from the shooter
-      const a = a0 + da; _hdir.set(Math.sin(a), 0.2, Math.cos(a)).normalize();
-      const L = City.raycast(_hs.set(c.x, c.y + 14, c.z), _hdir, 400) ? City.hit.t : 400;
-      if (L > bl + 30) { bl = L; best = a; }
+  // off, drops into the street canyons and runs from the shooter through the city: low between the buildings,
+  // turning at the crossings (mostly away from him, and off the main avenue he looks down), hopping over
+  // anything across the street. Out past 1,900 m it has escaped.
+  const HELI_V = 27, HELI_VT = 15, HELI_ACC = 3.5, HELI_CRUISE = 24, HELI_ESC = 1900;
+  const gridOK = (j, k) => Math.abs(j) <= GRID.nAve - 1 && k >= 1 && k <= GRID.nSt - 1;
+  const gnode = (j, k) => ({ x: j * GRID.aveSp, z: -k * GRID.stSp, j, k });
+  // the next crossing after b (coming from a): straight on, left or right, never back
+  // (it weaves: after a block or two straight on it wants to turn)
+  function nextNode(a, b, straight = 0) {
+    const dj = Math.sign(b.j - a.j), dk = Math.sign(b.k - a.k);
+    let best = null, bs = -1e9;
+    for (const [ej, ek] of [[dj, dk], [dk, -dj], [-dk, dj]]) {
+      const j = b.j + ej, k = b.k + ek; if (!gridOK(j, k) || Math.abs(j) > 5) continue;
+      const on = ej === dj && ek === dk;
+      const sc = gameRand() * 1.4 + (ek > 0 ? 0.6 : ek < 0 ? -1.6 : 0) + (j === 0 ? -0.9 : 0) + (on ? (straight >= 1 ? -1.2 : 0.2) : 0);
+      if (sc > bs) { bs = sc; best = gnode(j, k); }
     }
-    return { type: 'heli', ph: 'spool', t: 0, head: best, v: 0, vy: 0, y0: c.y };
+    return best || gnode(b.j, Math.min(GRID.nSt - 1, b.k + 1));
   }
+  function heliDeparture() {
+    const c = RIG.c, j0 = Math.round(c.x / GRID.aveSp), k0 = Math.round(-c.z / GRID.stSp);
+    let n1 = null, bs = 1e9;
+    for (let j = j0 - 1; j <= j0 + 1; j++) for (let k = k0 - 1; k <= k0 + 2; k++) {
+      if (!gridOK(j, k)) continue;
+      const n = gnode(j, k), d = Math.hypot(n.x - c.x, n.z - c.z) + (n.z > c.z ? 120 : 0) + (j === 0 ? 80 : 0);
+      if (d < bs) { bs = d; n1 = n; }
+    }
+    const n2 = nextNode({ j: n1.j, k: n1.k - 1 }, n1);
+    return { type: 'heli', ph: 'spool', t: 0, v: 0, vy: 0, y0: c.y, n0: null, n1, n2, altT: c.y };
+  }
+  const _hb = V3();
+  // height of whatever is under the point (x, z) below y (street 0)
+  function under(x, y, z) { return City.raycast(_hb.set(x, y, z), _dn, y + 1) ? y - City.hit.t : 0; }
   function heliMove(dt) {
     const M = RIG.move, c = RIG.c;
     if (!M) { RIG.rpm = 0.5; RIG.rot += dt * TAU * RIG.rpm; return; }
     M.t += dt;
-    if (M.ph === 'spool') { RIG.rpm = lerp(0.5, 4, sstep(0, 1.2, M.t)); if (M.t > 1.2) { M.ph = 'lift'; M.t = 0; } }
-    else if (M.ph === 'lift') {
-      M.vy = Math.min(6, M.vy + 5 * dt);
-      let dy = M.head - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); RIG.yaw += clamp(dy, -0.7 * dt, 0.7 * dt);
-      if (c.y > M.y0 + 12) { M.ph = 'go'; M.t = 0; }
-    } else {
-      M.v = Math.min(Math.min(HELI_VMAX, HELI_V + HELI_VK * M.t), M.v + HELI_ACC * dt);   // and it keeps getting faster
-      const look = Math.max(60, M.v * 4);
-      _hdir.set(Math.sin(M.head), 0, Math.cos(M.head));
-      const block = City.raycast(_hs.set(c.x, c.y + 1, c.z), _hdir, look);
-      if (block) for (const da of [0.3, -0.3, 0.6, -0.6]) { _hdir.set(Math.sin(M.head + da), 0, Math.cos(M.head + da)); if (!City.raycast(_hs, _hdir, look)) { M.head += Math.sign(da) * 0.4 * dt; break; } }
-      M.vy = damp(M.vy, (block ? 9 : c.y < HELI_TOP ? HELI_CLIMB : 0) + 3 * Math.sin(M.t * TAU / 4.3) * sstep(4, 12, M.t), 1.5, dt);
-      // it jinks as it goes: weaving either side of its heading, more as it gets up to speed
-      const weave = HELI_WEAVE * sstep(4, 12, M.t) * Math.sin(M.t * TAU / HELI_WT);
-      let dy = M.head + weave - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); RIG.yaw += clamp(dy, -0.6 * dt, 0.6 * dt);
-      RIG.roll = damp(RIG.roll, -clamp(dy * 1.5, -0.4, 0.4), 2.5, dt);
+    let vT = 0, yawT = RIG.yaw;
+    if (M.ph === 'spool') { RIG.rpm = lerp(0.5, 4, sstep(0, 1.2, M.t)); M.altT = M.y0; if (M.t > 1.2) { M.ph = 'lift'; M.t = 0; } }
+    else {
+      if (M.ph === 'lift') { M.altT = M.y0 + 9; if (c.y > M.y0 + 6) { M.ph = 'go'; M.t = 0; } }
+      // steer for the next crossing; close to it, start the turn toward the one after
+      const d1 = Math.hypot(M.n1.x - c.x, M.n1.z - c.z);
+      if (d1 < 14) {
+        const on = M.n0 && (M.n2.j - M.n1.j) === (M.n1.j - M.n0.j) && (M.n2.k - M.n1.k) === (M.n1.k - M.n0.k);
+        M.straight = on ? (M.straight || 0) + 1 : 0;
+        M.n0 = M.n1; M.n1 = M.n2; M.n2 = nextNode(M.n0, M.n1, M.straight);
+      }
+      const turn = M.n0 && ((M.n2.j - M.n1.j) * (M.n1.k - M.n0.k) !== (M.n2.k - M.n1.k) * (M.n1.j - M.n0.j));
+      const k = sstep(45, 15, d1), px = lerp(M.n1.x, M.n2.x, k * 0.5), pz = lerp(M.n1.z, M.n2.z, k * 0.5);
+      yawT = Math.atan2(px - c.x, pz - c.z);
+      if (M.ph === 'go') {
+        const st = Math.max(0, (S.stage || 10) - 10);   // quicker every ten stages: about 27, 31 and 35 m/s
+        vT = (turn && d1 < 60 ? HELI_VT : HELI_V) + st * (turn && d1 < 60 ? 0.2 : 0.4);
+        // height: low in the canyon, but always well over whatever is below and whatever is ahead
+        const fx = Math.sin(RIG.yaw), fz = Math.cos(RIG.yaw);
+        let floor = 0;
+        for (const a of [0, 15, 30, 45]) floor = Math.max(floor, under(c.x + fx * a, c.y + 30, c.z + fz * a));
+        _hdir.set(fx, 0, fz);
+        for (const oy of [-1.5, 1.5, 4]) if (City.raycast(_hs.set(c.x, c.y + oy, c.z), _hdir, 55) && City.hit.id >= 0) floor = Math.max(floor, City.boxes[City.hit.id].y1 - 4);
+        M.altT = Math.max(HELI_CRUISE + 4 * Math.sin(M.t * 0.7), floor + 9);
+      }
     }
+    M.v = M.v < vT ? Math.min(vT, M.v + HELI_ACC * dt) : Math.max(vT, M.v - 6 * dt);
+    let dy = yawT - RIG.yaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    const rate = clamp(dy * 2.5, -1.4, 1.4); RIG.yaw += rate * dt;
+    M.vy = damp(M.vy, clamp((M.altT - c.y) * 1.2, -11, 12), 3, dt);
     RIG.vel.set(Math.sin(RIG.yaw) * M.v, M.vy, Math.cos(RIG.yaw) * M.v);
     c.addScaledVector(RIG.vel, dt);
-    RIG.pitch = damp(RIG.pitch, M.ph === 'go' ? 0.1 + 0.1 * (M.v / HELI_VMAX) : 0, 2, dt);   // nose down, more as it speeds up
+    RIG.roll = damp(RIG.roll, -clamp(rate * M.v / 30, -0.5, 0.5), 3, dt);        // banks into the turns
+    RIG.pitch = damp(RIG.pitch, 0.04 + 0.16 * Math.min(1, M.v / HELI_V), 2, dt);   // nose down, more as it speeds up
     RIG.rot += dt * TAU * RIG.rpm;
     rigAxes();
     if (Math.hypot(c.x - PLAYER.eye.x, c.z - PLAYER.eye.z) > HELI_ESC) S.escaped = true;
@@ -1897,7 +1931,10 @@ void main(){
     const c = RIG.c, eye = PLAYER.eye, tl = Math.hypot(eye.x - c.x, eye.z - c.z) || 1, tx = (eye.x - c.x) / tl, tz = (eye.z - c.z) / tl;
     const air = !!(RIG.move && RIG.move.ph !== 'spool'), y0 = c.y + RIG.cy;
     sp.air = air;
-    if (air) { sp.entry = new THREE.Vector3(c.x + tx * 9, y0, c.z + tz * 9); sp.entry2 = new THREE.Vector3(c.x + tx * 33, y0, c.z + tz * 33); }
+    if (air) {   // from behind it, back along the street it is flying down
+      const bx = -Math.sin(RIG.yaw), bz = -Math.cos(RIG.yaw);
+      sp.entry = new THREE.Vector3(c.x + bx * 9, y0, c.z + bz * 9); sp.entry2 = new THREE.Vector3(c.x + bx * 33, y0, c.z + bz * 33);
+    }
     else { delete sp.entry; delete sp.entry2; }
     if (S.alive) { const g = gateFor(c.x, y0, c.z) || (air ? new THREE.Vector3(c.x + tx * 60, y0 + 8, c.z + tz * 60) : null); if (g) sp.gate = g; }
   }
