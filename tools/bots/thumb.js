@@ -33,7 +33,7 @@
         X.Input.dx += dx; X.Input.dy += dy;
       };
       X.fire(); let tt = 0; while ((G.state === 'shot' || G.state === 'flight') && tt < 60) { X.sim(1 / 60); tt += 1 / 60; }
-      const hit = G.state === 'killcam'; if (hit) hits++; n++; X.bot = null;
+      const hit = G.state === "killcam"; if (hit) hits++; n++; X.bot = null; if (hit && G.tallyRows.some((r) => String(r[0]).startsWith("RICOCHET"))) out.ricoKills = (out.ricoKills || 0) + 1;
     }
     out['s' + st] = `${hits}/${n}`; tot += hits; totN += n;
   }

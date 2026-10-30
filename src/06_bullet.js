@@ -19,6 +19,7 @@ const Bullet = (() => {
     minDist: Infinity, travelled: 0, spin: 0, depleted: false, closeP: new THREE.Vector3(),
     // one glancing ricochet per shot (a strike within RICO_DEG of the surface skips off it like a mirror)
     ricochets: 1, ricoNew: false, ricoP: new THREE.Vector3(), ricoN: new THREE.Vector3(), pvBounceK: -1,
+    smartRico: null, ricoTo: null,   // phones: a function (point, normal) -> where to send the round on any wall hit
     glassNew: false, glassP: new THREE.Vector3(), glassN: new THREE.Vector3(),
     // seeker model: the predicted-impact pipper only exists after lock, and carries sensor noise (metres at the target plane)
     lock: 0, lockT: 0.1, seeker: 0.1, pipErr: new THREE.Vector2(), turb: new THREE.Vector2(), gust: 0,
@@ -226,6 +227,7 @@ const Bullet = (() => {
     S.vc = opt.vc || 140; S.vMin = opt.vMin || Math.min(S.vc, 55); S.slowNear = opt.slowNear || 12; S.slowFar = opt.slowFar || 90; S.brakeT = opt.brakeT || 0.24; S.dash = opt.dash || 0; S.windK = opt.windK != null ? opt.windK : 1; S.bleed = opt.bleed != null ? opt.bleed : 0.12; S.deploy = 0;
     S.aCur.set(0, 0); S.cmd.set(0, 0); S.minDist = Infinity; S.travelled = 0; S.depleted = false;
     S.ricochets = opt.ricochets != null ? opt.ricochets : 3; S.ricoNew = false; S.pvBounceK = -1; S.assistK = 1;
+    S.smartRico = opt.smartRico || null; S.ricoTo = null;
     S.windMean.copy(opt.wind); S.wind.copy(opt.wind);
     gustX = new OU(1.6, opt.gust); gustZ = new OU(1.6, opt.gust * 0.6);
     S.basket = opt.basket || 0; S.homeT = opt.homeT || 0.5; S.homing = false;
@@ -323,13 +325,21 @@ const Bullet = (() => {
       }
       if (wh) {
         const nx = City.hit.nx, ny = City.hit.ny, nz = City.hit.nz, sinA = -(tmp.x * nx + tmp.y * ny + tmp.z * nz);
-        if (S.ricochets > 0 && sinA < RICO_SIN && sinA > -1e-3) {
+        // phones: any wall hit with ricochets left bounces, and the bounce goes where the game says (toward
+        // the target if it can be seen from there, else on along the planned route)
+        let to = null;
+        if (S.ricochets > 0 && S.smartRico && sinA > -1e-3) {
+          S.ricoP.copy(S.pPrev).addScaledVector(tmp, City.hit.t).addScaledVector(S.ricoN.set(nx, ny, nz), 0.3);
+          to = S.smartRico(S.ricoP, S.ricoN);
+        }
+        if (S.ricochets > 0 && sinA > -1e-3 && (to || sinA < RICO_SIN)) {
           // glancing strike: the round skips off (angle out = angle in), sheds some speed, flies on
-          S.ricochets--; S.ricoNew = true;
+          S.ricochets--; S.ricoNew = true; S.ricoTo = to;
           S.ricoP.copy(S.pPrev).addScaledVector(tmp, City.hit.t); S.ricoN.set(nx, ny, nz);
           const vn = S.v.x * nx + S.v.y * ny + S.v.z * nz;
-          S.v.x -= 2 * vn * nx; S.v.y -= 2 * vn * ny; S.v.z -= 2 * vn * nz; S.v.multiplyScalar(RICO_KEEP);
-          S.p.copy(S.ricoP).addScaledVector(S.ricoN, 0.08); S.pPrev.copy(S.p);
+          if (to) { const sp = S.v.length() * RICO_KEEP; S.v.subVectors(to, S.ricoP).normalize().multiplyScalar(sp); }
+          else { S.v.x -= 2 * vn * nx; S.v.y -= 2 * vn * ny; S.v.z -= 2 * vn * nz; S.v.multiplyScalar(RICO_KEEP); }
+          S.p.copy(S.ricoP).addScaledVector(S.ricoN, to ? 0.3 : 0.08); S.pPrev.copy(S.p);
           pushTrail(); trAcc = 0;
           continue;
         }

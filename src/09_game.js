@@ -163,6 +163,26 @@ function newStage() {
   if (!G.demo) Sfx.stageStart && Sfx.stageStart();
   return info;
 }
+// phones: where a ricochet sends the round, in order: toward the target if it can be seen from the wall
+// (leading a moving one); else to the point of the planned route nearest the target that can be seen from
+// there (within 150 m); else up and away from the wall, leaning toward the target, to climb clear of the
+// buildings for another go; else straight back out from the wall. Always away from the wall it hit.
+const RC = new THREE.Vector3(), RCD = new THREE.Vector3();
+function smartRico(p, n) {
+  if (!Target.S.alive) return null;
+  const c = Target.chest, away = (q) => RCD.subVectors(q, p).normalize().dot(n) > 0.08;
+  RC.copy(c).addScaledVector(G.tgtVel, Math.min(1.2, p.distanceTo(c) / 50));
+  if (clearLine(p, RC, 0.3, true) && away(RC)) return RC;
+  if (RP.ok && RP.pts.length) for (let j = RP.pts.length - 1; j >= 0; j -= 2) {
+    const q = RP.pts[j]; if (q.distanceTo(p) < 150 && clearLine(p, q, 0.3, true) && away(q)) return RC.copy(q);
+  }
+  RCD.subVectors(c, p).setY(0).normalize();
+  RC.copy(n).multiplyScalar(0.6).addScaledVector(UP, 1).addScaledVector(RCD, 0.5).normalize().multiplyScalar(40).add(p);
+  if (clearLine(p, RC, 0.3, true)) return RC.clone();
+  // last resort: straight back out from the wall
+  RC.copy(p).addScaledVector(n, 25); if (clearLine(p, RC, 0.3, true)) return RC.clone();
+  return null;
+}
 // the stage's target, flight-checked: a hidden target whose route a round with this stage's limits cannot fly
 // is replaced (the same kind of spot again, then anything). Early stages demand a wide margin; by stage 20
 // the route may need nearly everything the round has. Past stage 7 a route that is too easy (flyable with only
@@ -229,6 +249,7 @@ function fire() {
     aMax: G.diff.aMax, tau: G.diff.tau, budget: G.diff.budget, wind: G.wind, gust: G.diff.gust, turb: G.diff.turb, roll: G.diff.roll,
     lockT: Math.max(0.05, G.diff.lockF * tof), seeker: G.diff.seeker, basket: G.diff.basket, homeT: G.diff.homeT,
     vc, vMin: G.diff.vMin, slowNear: G.diff.slowNear, slowFar: G.diff.slowFar, brakeT, dash, windK: G.diff.windK, bleed: G.diff.bleed, ricochets: 3,
+    smartRico: Hud.touch && !G.demo ? smartRico : null,   // phones: any wall hit with ricochets left bounces toward the target
   });
   // once he has been missed he hears every shot after it (sound takes its time to reach him) and runs or ducks
   if (Target.S.alive && Target.S.wary > 0) Target.alert(0.3 + Target.S.dist / 343);
@@ -1251,6 +1272,11 @@ function tick(rdt) {
         }
       }
       if (B.ricoNew) {
+        // phones: after a ricochet toward the target the marker locks on him; toward the route, it sits there
+        if (B.ricoTo) {
+          if (Target.S.alive && clearLine(B.p, Target.chest, 0.3, true)) { G.aimLock = true; G.aimArmed = true; }
+          else { G.aimP.copy(B.ricoTo); G.aimTgt.copy(B.ricoTo); G.aimLock = false; G.aimSpent = false; G.aimDepth = null; }
+        }
         B.ricoNew = false; FX.sparks(B.ricoP, B.ricoN, 30, 30); Sfx.ricochet && Sfx.ricochet();
         G.stampText = 'RICOCHET'; G.stampT = 0.9; G.shake = Math.max(G.shake, 0.5); G.ricoT = 0.6; G.recede = 0; G.pathReset = true;
       }
