@@ -620,7 +620,7 @@ const Hud = (() => {
     const lh = logo(W / 2, ly, lw, t, clamp(st / 1.2, 0, 1));
     const sy = ly + lh / 2 + 36 * u;
     if (st > 1.2) {
-      const s = 'GHOST SOLDIER', w2 = tw(s, 16) / 2 + 20 * u;
+      const s = 'DARPA GAMES', w2 = tw(s, 16) / 2 + 20 * u;
       txt(s, W / 2, sy, 16, 'center');
       line(W / 2 - w2 - 60 * u, sy, W / 2 - w2, sy, 1.2, DIM); line(W / 2 + w2, sy, W / 2 + w2 + 60 * u, sy, 1.2, DIM);
     }

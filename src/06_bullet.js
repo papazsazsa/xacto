@@ -137,15 +137,41 @@ const Bullet = (() => {
   const trail = new THREE.Line(trGeo, lineMat); trail.frustumCulled = false; trail.renderOrder = 7;
   let trN = 0, trAcc = 0;
 
-  // speed streaks: air motes in a cone ahead of the round, drawn as lines along the
+  // speed streaks: air motes in a cone ahead of the round, drawn as streaks along the
   // flight direction (so they radiate from the vanishing point), stretched by the
   // distance the round covers per frame; dense near the round, sparse far out.
+  // Each streak is a thin quad with a fixed thickness on screen (about 1/330 of the screen height), so they
+  // read the same on a phone and on a big desktop screen.
   const NM = 150;
-  const mPos = new Float32Array(NM * 6), mHeat = new Float32Array(NM * 2), mH = new Float32Array(NM), motes = [];
+  const mPos = new Float32Array(NM * 12), mOther = new Float32Array(NM * 12), mSide = new Float32Array(NM * 4), mHeat = new Float32Array(NM * 4), mH = new Float32Array(NM), motes = [];
+  const mIdx = new Uint16Array(NM * 6);
+  for (let i = 0; i < NM; i++) {
+    mSide.set([-1, 1, 1, -1], i * 4);
+    mIdx.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 2, i * 4 + 1, i * 4 + 3], i * 6);
+  }
   const mGeo = new THREE.BufferGeometry();
   mGeo.setAttribute('position', new THREE.BufferAttribute(mPos, 3).setUsage(THREE.DynamicDrawUsage));
+  mGeo.setAttribute('aOther', new THREE.BufferAttribute(mOther, 3).setUsage(THREE.DynamicDrawUsage));
+  mGeo.setAttribute('aSide', new THREE.BufferAttribute(mSide, 1));
   mGeo.setAttribute('aHeat', new THREE.BufferAttribute(mHeat, 1).setUsage(THREE.DynamicDrawUsage));
-  const streaks = new THREE.LineSegments(mGeo, lineMat); streaks.frustumCulled = false; streaks.renderOrder = 7;
+  mGeo.setIndex(new THREE.BufferAttribute(mIdx, 1));
+  const streakMat = new THREE.ShaderMaterial({
+    uniforms: { uFogD: U.uFogD, uW: { value: 0.003 }, uAspect: { value: 1 } },
+    vertexShader: `uniform float uFogD, uW, uAspect; attribute vec3 aOther; attribute float aSide, aHeat; varying float vH;
+      void main(){
+        vec4 mv = modelViewMatrix*vec4(position,1.0), mo = modelViewMatrix*vec4(aOther,1.0);
+        vH = aHeat*exp(-(-mv.z)*uFogD)*smoothstep(0.05, 0.5, -mv.z);
+        vec4 cp = projectionMatrix*mv, co = projectionMatrix*mo;
+        vec2 a = cp.xy / max(cp.w, 1e-4), b = co.xy / max(co.w, 1e-4);
+        vec2 d = (a - b) * vec2(uAspect, 1.0); float L = length(d);
+        vec2 n = L > 1e-6 ? vec2(-d.y, d.x) / L : vec2(0.0, 1.0); n.x /= uAspect;
+        cp.xy += n * aSide * uW * cp.w;   // uW: half the thickness, in screen heights (x2)
+        gl_Position = cp;
+      }`,
+    fragmentShader: `varying float vH; void main(){ gl_FragColor = vec4(vH, 0.0, 0.0, 1.0); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const streaks = new THREE.Mesh(mGeo, streakMat); streaks.frustumCulled = false; streaks.renderOrder = 7;
   for (let i = 0; i < NM; i++) motes.push(new THREE.Vector3(1e6, 0, 0));
   let burst = 0, burstLatch = false;
 
@@ -451,7 +477,8 @@ const Bullet = (() => {
     trGeo.attributes.position.needsUpdate = true; trGeo.attributes.aHeat.needsUpdate = true;
     // speed streaks, only while flying
     const flying = typeof G === 'undefined' || G.state === 'flight';
-    streaks.material.visible = true; mGeo.setDrawRange(0, flying ? NM * 2 : 0);   // never in the scope view
+    streaks.material.visible = true; mGeo.setDrawRange(0, flying ? NM * 6 : 0);   // never in the scope view
+    if (cam) streakMat.uniforms.uAspect.value = cam.aspect;
     if (streaks.visible && S.active && flying) {
       frame();
       // near-miss burst: the game raises G.whoosh to 1 on a close call
@@ -474,12 +501,15 @@ const Bullet = (() => {
           hh *= sstep(0.9975, 0.990, vC.dot(vT));
         }
         const Lm = L * (0.6 + 0.8 * near) * (mH[i] > 1 ? 1.6 : 1);
-        mPos[i * 6] = m.x; mPos[i * 6 + 1] = m.y; mPos[i * 6 + 2] = m.z;
-        mPos[i * 6 + 3] = m.x - f.x * Lm; mPos[i * 6 + 4] = m.y - f.y * Lm; mPos[i * 6 + 5] = m.z - f.z * Lm;
-        mHeat[i * 2] = hh; mHeat[i * 2 + 1] = 0;
+        const ax = m.x, ay = m.y, az = m.z, bx = m.x - f.x * Lm, by = m.y - f.y * Lm, bz = m.z - f.z * Lm, o = i * 12;
+        mPos[o] = mPos[o + 3] = ax; mPos[o + 1] = mPos[o + 4] = ay; mPos[o + 2] = mPos[o + 5] = az;
+        mPos[o + 6] = mPos[o + 9] = bx; mPos[o + 7] = mPos[o + 10] = by; mPos[o + 8] = mPos[o + 11] = bz;
+        mOther[o] = mOther[o + 3] = bx; mOther[o + 1] = mOther[o + 4] = by; mOther[o + 2] = mOther[o + 5] = bz;
+        mOther[o + 6] = mOther[o + 9] = ax; mOther[o + 7] = mOther[o + 10] = ay; mOther[o + 8] = mOther[o + 11] = az;
+        mHeat[i * 4] = mHeat[i * 4 + 1] = hh; mHeat[i * 4 + 2] = mHeat[i * 4 + 3] = 0;
         if (mH[i] > 1) mH[i] = Math.max(1, mH[i] - gdt * 18);
       }
-      mGeo.attributes.position.needsUpdate = true; mGeo.attributes.aHeat.needsUpdate = true;
+      mGeo.attributes.position.needsUpdate = true; mGeo.attributes.aOther.needsUpdate = true; mGeo.attributes.aHeat.needsUpdate = true;
     }
   }
   function hideRound() { group.visible = false; streaks.visible = false; glow.visible = tracer.visible = false; }

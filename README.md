@@ -1,4 +1,4 @@
-# XACTO – Ghost Soldier
+# XACTO – DARPA Games
 
 An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners to targets hidden behind cover: men on rooftops, on sidewalks and under awnings, pickup technicals with a mounted machine gun, and hovering quadcopters. Missed once, a target is alerted: the man runs, the technical drives laps round its block, and the quadcopter rises and sinks. Each round can ricochet three times off glancing hits.
 

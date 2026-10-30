@@ -73,7 +73,7 @@ const Post = (() => {
     uTime: U.uTime, uDDE: { value: 0.45 }, uNoise: { value: 0.024 }, uPersist: { value: 0.2 }, uPersistE: { value: 0 }, uEdge: { value: 0.085 }, uFovK: { value: 1 } });
 
   const display = sh(HASH + `uniform sampler2D tS, tQ1, tQ2, tHud, tAgc, tInset; uniform vec2 uRes, uSRes, uHudPx, uInsetRes; uniform vec4 uInsetRect; uniform float uInsetOn, uInsetGrain, uInsetFlat;
-    uniform float uMode, uScope, uScopeR, uFlash, uStatic, uFade, uTime, uCurv, uBloom, uNoise, uAgcAmt, uZoom, uIris, uEdgeAmt, uLines, uBezel;
+    uniform float uMode, uScope, uScopeR, uFlash, uStatic, uFade, uTime, uCurv, uBloom, uNoise, uAgcAmt, uZoom, uIris, uEdgeAmt, uLines, uBezel, uGrainRows;
     uniform float uExpo, uMuzzle, uHudSharp;
     uniform vec2 uScopeOff; varying vec2 vUv;
     // Fixed thermal grade: apparent temperature -> display level y (white hot, ~217*y of 255):
@@ -152,9 +152,11 @@ const Post = (() => {
       // vector edges: bright lines on cool surfaces, dark engraved lines inside hot silhouettes
       // (engraving is capped so small hot figures - mostly edge pixels - stay white)
       v += min(S.g, 1.0) * uEdgeAmt * (1.0 - 0.6*uZoom) * mix(1.0, -0.35, smoothstep(0.85, 0.98, v));
-      // sensor noise at sensor pixel pitch, amplified a little with gain
-      vec2 sp_px = floor(suv*uSRes);
-      float n = hash(sp_px + fract(uTime*7.31)*vec2(311.7, 183.3)) - 0.5;
+      // sensor grain at a fixed size on screen (about uGrainRows rows, whatever the render resolution), blended
+      // between grain cells the way an upscaled low-resolution sensor looks, so phones and desktops match
+      float gy = min(uSRes.y, uGrainRows); vec2 gp = suv * vec2(gy * uSRes.x / uSRes.y, gy);
+      vec2 sp_px = floor(gp), gf = gp - sp_px, to = fract(uTime*7.31)*vec2(311.7, 183.3);
+      float n = (mix(mix(hash(sp_px + to), hash(sp_px + vec2(1.0, 0.0) + to), gf.x), mix(hash(sp_px + vec2(0.0, 1.0) + to), hash(sp_px + vec2(1.0) + to), gf.x), gf.y) - 0.5) * 1.4;
       float col = hash(vec2(sp_px.x, 3.7)) - 0.5;
       float namp = uNoise * 1.6;
       if (nv) {
@@ -244,7 +246,7 @@ const Post = (() => {
     tS: { value: null }, tQ1: { value: null }, tQ2: { value: null }, tHud: { value: null }, tAgc: { value: null },
     uRes: { value: new THREE.Vector2() }, uSRes: { value: new THREE.Vector2() }, uHudPx: { value: new THREE.Vector2(1 / 1280, 1 / 720) },
     uMode: { value: 0 }, uScope: { value: 0 }, uScopeR: { value: 0.46 }, uFlash: { value: 0 }, uStatic: { value: 0 }, uFade: { value: 0 },
-    uTime: U.uTime, uCurv: { value: 0.02 }, uScopeOff: { value: new THREE.Vector2() }, uBloom: { value: 1 }, uNoise: { value: 0.024 },
+    uTime: U.uTime, uCurv: { value: 0.02 }, uScopeOff: { value: new THREE.Vector2() }, uBloom: { value: 1 }, uNoise: { value: 0.024 }, uGrainRows: { value: 340 },
     uAgcAmt: { value: 1 }, uZoom: { value: 0 }, uIris: { value: 1 }, uEdgeAmt: { value: 0.15 }, uLines: { value: 0.26 }, uBezel: { value: 1 },
     uExpo: { value: 1 }, uMuzzle: { value: 0 }, uHudSharp: { value: 2.5 },
     tInset: { value: null }, uInsetOn: { value: 0 }, uInsetGrain: { value: 1 }, uInsetFlat: { value: 0 }, uInsetRect: { value: new THREE.Vector4(0, 0, 0, 0) }, uInsetRes: { value: new THREE.Vector2(1, 1) },
