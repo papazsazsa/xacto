@@ -1,14 +1,6 @@
 # XACTO – DARPA Games
 
-An 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners into tight spots: rooftops behind taller buildings, the tops of the tallest towers, ledges high on a tower, street canyons, under awnings. A technical (a pickup with a machine gun) or a quadcopter turns up every 6 to 8 stages. Each round can ricochet three times off glancing hits.
-
-1. **Stage 1.** In the open. **Stage 2:** a technical on the main avenue. **Stage 4:** a man on top of one of the tallest towers.
-2. **Stages 5, 15, 25: fire mission**, a reward round. Lock three targets, drop a mortar bomb down the tube, fire, and watch it split into three cones. Five set-ups rotate: checkpoint, convoy, drone nest, motor pool (out of sight), parking deck.
-3. **Stages 10, 20, 30: the helicopter.** It lifts off at your first shot and runs low through the streets.
-4. **Stage 30 is the last.** Bring it down and you saved the city.
-5. **From stage 8 on** the shots get longer and the spots tighter, until by stage 20 it is close to impossible. Every spot is checked to make sure the round can actually fly into it.
-
-© 1987 VALENTINE ARCADE (fictional).
+An vibe-coded 80s-arcade thermal sniper game built in Three.js (r170). You fire an EXACTO-style guided round and fly it around corners into tight spots: rooftops behind taller buildings, the tops of the tallest towers, ledges high on a tower, street canyons, under awnings. A technical (a pickup with a machine gun) or a quadcopter turns up every 6 to 8 stages. Each round can ricochet three times off glancing hits.
 
 ## Play
 
