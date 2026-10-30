@@ -725,6 +725,8 @@ void main(){
     rigReset(); S.type = 'man';
     S.hide = null; S.app = null; S.alertT = 0; S.spot = null; S.wary = 0; S.base = null; S.evT = 0;
     S.char = opts.char || pickChar(); S.packGone = false;
+    // the first target: always in the open, close to where the scope starts out pointing
+    if (stage <= 1 && !opts.kind) return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts));
     if (opts.hidden !== false && spawnHidden(stage, opts)) return true;
     if (opts.cover !== false && spawnCover(stage, opts)) return true;
     return spawnOpen(stage, opts);
@@ -975,7 +977,7 @@ void main(){
       const cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2;
       const d = Math.hypot(cx - eye.x, cz - eye.z);
       const yaw = Math.atan2(cx - eye.x, -(cz - eye.z));
-      return d > lo && d < hi && Math.abs(yaw) < 40 * DEG && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y < 160;
+      return d > lo && d < hi && Math.abs(yaw) < (opts.maxYaw || 40 * DEG) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y < 160;
     });
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
     S.stage = stage;

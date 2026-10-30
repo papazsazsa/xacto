@@ -683,8 +683,10 @@ const Hud = (() => {
       typeTokens(`TARGET ${Math.round(Target.S.dist)} M   WIND ${Math.abs(G.crossWind).toFixed(1)} M/S`, W / 2, y + 30 * u + o, 28, (r - 0.5) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       typeTokens(`STEERING BUDGET ${G.diff.budget.toFixed(0)} M/S`, W / 2, y + 60 * u + o, 28, (r - 0.8) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       if (teach) {
-        typeTokens('DASHED BRACKETS: HE IS OUT OF SIGHT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
-        typeTokens(touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
+        // hidden spots teach the dashed brackets and the marker; open shots just say aim and fire
+        const hid = !!(Target.S.spot && Target.S.spot.kind !== 'highway');
+        typeTokens(hid ? 'DASHED BRACKETS: HE IS OUT OF SIGHT' : 'SOLID BRACKETS: A CLEAR SHOT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
+        typeTokens(!hid ? (touch ? 'PUT THE CROSSHAIRS ON THE TARGET AND TAP FIRE' : 'PUT THE CROSSHAIRS ON THE TARGET AND FIRE') : touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
       }
     }
     ctx.globalAlpha = 1;

@@ -150,6 +150,11 @@ function newStage() {
   const tc = Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
   Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];
+  if (G.stage <= 1) {
+    // the first target: the scope starts just off him, so he is in view from the first frame
+    const dx = tc.x - PLAYER.eye.x, dy = tc.y - PLAYER.eye.y, dz = tc.z - PLAYER.eye.z;
+    Aim.yaw = Math.atan2(-dx, -dz) + grnd(-1, 1) * 0.9 * DEG; Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz)) + grnd(-1, 1) * 0.6 * DEG;
+  }
   G.timeLeft = 60; G.breath = 1; G.gasp = 0;
   setState('brief');
   Sfx.windLevel && Sfx.windLevel(G.wind.length());

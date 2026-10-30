@@ -3478,6 +3478,8 @@ void main(){
     rigReset(); S.type = 'man';
     S.hide = null; S.app = null; S.alertT = 0; S.spot = null; S.wary = 0; S.base = null; S.evT = 0;
     S.char = opts.char || pickChar(); S.packGone = false;
+    // the first target: always in the open, close to where the scope starts out pointing
+    if (stage <= 1 && !opts.kind) return spawnOpen(stage, Object.assign({ maxYaw: 12 * DEG }, opts));
     if (opts.hidden !== false && spawnHidden(stage, opts)) return true;
     if (opts.cover !== false && spawnCover(stage, opts)) return true;
     return spawnOpen(stage, opts);
@@ -3728,7 +3730,7 @@ void main(){
       const cx = (R.x0 + R.x1) / 2, cz = (R.z0 + R.z1) / 2;
       const d = Math.hypot(cx - eye.x, cz - eye.z);
       const yaw = Math.atan2(cx - eye.x, -(cz - eye.z));
-      return d > lo && d < hi && Math.abs(yaw) < 40 * DEG && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y < 160;
+      return d > lo && d < hi && Math.abs(yaw) < (opts.maxYaw || 40 * DEG) && R.x1 - R.x0 > 9 && R.z1 - R.z0 > 9 && R.y < 160;
     });
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(gameRand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
     S.stage = stage;
@@ -6158,8 +6160,10 @@ const Hud = (() => {
       typeTokens(`TARGET ${Math.round(Target.S.dist)} M   WIND ${Math.abs(G.crossWind).toFixed(1)} M/S`, W / 2, y + 30 * u + o, 28, (r - 0.5) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       typeTokens(`STEERING BUDGET ${G.diff.budget.toFixed(0)} M/S`, W / 2, y + 60 * u + o, 28, (r - 0.8) * 2, 'center', FB, 'rgba(255,0,0,0.9)');
       if (teach) {
-        typeTokens('DASHED BRACKETS: HE IS OUT OF SIGHT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
-        typeTokens(touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
+        // hidden spots teach the dashed brackets and the marker; open shots just say aim and fire
+        const hid = !!(Target.S.spot && Target.S.spot.kind !== 'highway');
+        typeTokens(hid ? 'DASHED BRACKETS: HE IS OUT OF SIGHT' : 'SOLID BRACKETS: A CLEAR SHOT', W / 2, y + 82 * u, 28, (r - 1.1) * 2, 'center', FB, BR);
+        typeTokens(!hid ? (touch ? 'PUT THE CROSSHAIRS ON THE TARGET AND TAP FIRE' : 'PUT THE CROSSHAIRS ON THE TARGET AND FIRE') : touch ? 'DRAG THE MARKER, OR TAP HIM TO LOCK ON' : STEER_MODE === 'point' ? 'MOVE THE MARKER TO FLY THE ROUND TO HIM' : 'STEER THE ROUND AROUND THE BUILDINGS', W / 2, y + 108 * u, 28, (r - 1.4) * 2, 'center', FB, BR);
       }
     }
     ctx.globalAlpha = 1;
@@ -6503,6 +6507,11 @@ function newStage() {
   const tc = Target.chest;
   Aim.yaw = clamp(Math.atan2(-(tc.x - PLAYER.eye.x), -(tc.z - PLAYER.eye.z)) * 0.4, -0.5, 0.5);
   Aim.pitch = -0.035; G.magI = SCOPE_MAG_I; G.mag = MAGS[SCOPE_MAG_I];
+  if (G.stage <= 1) {
+    // the first target: the scope starts just off him, so he is in view from the first frame
+    const dx = tc.x - PLAYER.eye.x, dy = tc.y - PLAYER.eye.y, dz = tc.z - PLAYER.eye.z;
+    Aim.yaw = Math.atan2(-dx, -dz) + grnd(-1, 1) * 0.9 * DEG; Aim.pitch = Math.atan2(dy, Math.hypot(dx, dz)) + grnd(-1, 1) * 0.6 * DEG;
+  }
   G.timeLeft = 60; G.breath = 1; G.gasp = 0;
   setState('brief');
   Sfx.windLevel && Sfx.windLevel(G.wind.length());
